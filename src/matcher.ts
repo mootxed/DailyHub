@@ -36,3 +36,20 @@ export function pickMatchingGoal(
   }
   return selected;
 }
+
+export function pickMatchingPrimaryGoal(
+  goals: DailyGoal[],
+  activity: ActivityContext,
+  duringAfk: boolean
+): DailyGoal | undefined {
+  let selected: DailyGoal | undefined;
+  for (const goal of goals) {
+    const matches = goal.enabled && goal.rules.some((rule) => rule.role === "primary"
+      && (!duringAfk || rule.countDuringAfk)
+      && ruleMatches(rule, activity));
+    if (matches && (selected === undefined || goal.id.localeCompare(selected.id) < 0)) {
+      selected = goal;
+    }
+  }
+  return selected;
+}

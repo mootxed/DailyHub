@@ -117,7 +117,8 @@ export class GoalEditorModal extends Modal {
   }
 
   private renderRule(container: HTMLElement, rule: GoalRule): void {
-    const row = container.createDiv({ cls: "daily-hub-rule" });
+    const item = container.createDiv({ cls: "daily-hub-rule-item" });
+    const row = item.createDiv({ cls: "daily-hub-rule" });
 
     const field = row.createEl("select", { attr: { "aria-label": "Rule type" } });
     const fields: [GoalRule["field"], string][] = [
@@ -152,6 +153,24 @@ export class GoalEditorModal extends Modal {
       this.draft.rules = this.draft.rules.filter((candidate) => candidate.id !== rule.id);
       this.render();
     });
+
+    if (rule.role === "primary") {
+      const passive = item.createDiv({ cls: "daily-hub-rule-afk" });
+      const checkboxId = `daily-hub-rule-afk-${rule.id}`;
+      const checkbox = passive.createEl("input", {
+        type: "checkbox",
+        attr: { id: checkboxId, "aria-label": "Count while AFK" }
+      });
+      checkbox.checked = rule.countDuringAfk;
+      checkbox.addEventListener("change", () => { rule.countDuringAfk = checkbox.checked; });
+
+      const copy = passive.createDiv();
+      copy.createEl("label", { text: "Count while AFK", attr: { for: checkboxId } });
+      copy.createEl("div", {
+        text: "Useful for passive activities such as video lessons. The rule must still match the current foreground activity.",
+        cls: "daily-hub-muted"
+      });
+    }
   }
 
   private async save(): Promise<void> {

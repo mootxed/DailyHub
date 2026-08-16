@@ -35,17 +35,31 @@ function goal(
   };
 }
 
-function appRule(value: string, role: GoalRule["role"] = "primary"): GoalRule {
-  return { id: `${role}-app-${value}`, role, field: "application", operator: "equals", value };
+function appRule(
+  value: string,
+  role: GoalRule["role"] = "primary",
+  countDuringAfk = false
+): GoalRule {
+  const rule = { id: `${role}-app-${value}`, field: "application" as const, operator: "equals" as const, value };
+  return role === "primary"
+    ? { ...rule, role, countDuringAfk }
+    : { ...rule, role };
 }
 
-function urlRule(value: string, role: GoalRule["role"] = "primary"): GoalRule {
-  return { id: `${role}-url-${value}`, role, field: "url", operator: "contains", value };
+function urlRule(
+  value: string,
+  role: GoalRule["role"] = "primary",
+  countDuringAfk = false
+): GoalRule {
+  const rule = { id: `${role}-url-${value}`, field: "url" as const, operator: "contains" as const, value };
+  return role === "primary"
+    ? { ...rule, role, countDuringAfk }
+    : { ...rule, role };
 }
 
-function contextGoal(timeoutMinutes = 10): DailyGoal {
+function contextGoal(timeoutMinutes = 10, countDuringAfk = false): DailyGoal {
   return goal("devops", 90, [
-    urlRule("stepik.org"),
+    urlRule("stepik.org", "primary", countDuringAfk),
     appRule("Terminal", "continuation")
   ], timeoutMinutes);
 }
@@ -382,5 +396,139 @@ describe("daily progress", () => {
       )]
     }), previousDate);
     expect(result[0]?.activeSeconds).toBe(900);
+  });
+
+  it("does not count a default primary rule while AFK", () => {
+    const typing = goal("typing", 30, urlRule("keybr.com"));
+    const result = calculateDailyProgress([typing], activity({
+      windowEvents: [event(0, 240, { app: "Firefox", title: "Keybr" })],
+      browserEvents: [event(
+        0,
+        240,
+        { url: "https://keybr.com", title: "Keybr" },
+        DATE,
+        "aw-watcher-web-firefox_host"
+      )],
+      afkEvents: [event(0, 240, { status: "afk" })]
+    }), DATE);
+    expect(result[0]?.activeSeconds).toBe(0);
+  });
+
+  it("counts a matching passive primary rule while AFK", () => {
+    const result = calculateDailyProgress([contextGoal(10, true)], activity({
+      windowEvents: [event(0, 900, { app: "Firefox", title: "Stepik" })],
+      browserEvents: [event(
+        0,
+        900,
+        { url: "https://stepik.org/lesson/1", title: "Stepik" },
+        DATE,
+        "aw-watcher-web-firefox_host"
+      )],
+      afkEvents: [event(0, 900, { status: "afk" })]
+    }), DATE);
+    expect(result[0]?.activeSeconds).toBe(900);
+  });
+
+  it("combines active and passive time for the same primary rule", () => {
+    const result = calculateDailyProgress([contextGoal(10, true)], activity({
+      windowEvents: [event(0, 1_200, { app: "Firefox", title: "Stepik" })],
+      browserEvents: [event(
+        0,
+        1_200,
+        { url: "https://stepik.org/lesson/1", title: "Stepik" },
+        DATE,
+        "aw-watcher-web-firefox_host"
+      )],
+      afkEvents: [event(300, 900, { status: "afk" })]
+    }), DATE);
+    expect(result[0]?.activeSeconds).toBe(1_200);
+  });
+
+  it("lets passive primary time keep context alive for continuation", () => {
+    const result = calculateDailyProgress([contextGoal(10, true)], activity({
+      windowEvents: [
+        event(0, 1_200, { app: "Firefox", title: "Stepik" }),
+        event(1_200, 600, { app: "Terminal" })
+      ],
+      browserEvents: [event(
+        0,
+        1_200,
+        { url: "https://stepik.org/lesson/1", title: "Stepik" },
+        DATE,
+        "aw-watcher-web-firefox_host"
+      )],
+      afkEvents: [event(300, 900, { status: "afk" })]
+    }), DATE);
+    expect(result[0]?.activeSeconds).toBe(1_800);
+  });
+
+  it("never counts a continuation rule while AFK", () => {
+    const result = calculateDailyProgress([contextGoal(10, true)], activity({
+      windowEvents: [
+        event(0, 300, { app: "Firefox", title: "Stepik" }),
+        event(300, 300, { app: "Terminal" })
+      ],
+      browserEvents: [event(
+        0,
+        300,
+        { url: "https://stepik.org/lesson/1", title: "Stepik" },
+        DATE,
+        "aw-watcher-web-firefox_host"
+      )],
+      afkEvents: [event(300, 300, { status: "afk" })]
+    }), DATE);
+    expect(result[0]?.activeSeconds).toBe(300);
+  });
+
+  it("lets uncounted continuation AFK time expire context", () => {
+    const result = calculateDailyProgress([contextGoal(10, true)], activity({
+      windowEvents: [
+        event(0, 300, { app: "Firefox", title: "Stepik" }),
+        event(300, 1_200, { app: "Terminal" }),
+        event(1_500, 600, { app: "Terminal" })
+      ],
+      browserEvents: [event(
+        0,
+        300,
+        { url: "https://stepik.org/lesson/1", title: "Stepik" },
+        DATE,
+        "aw-watcher-web-firefox_host"
+      )],
+      afkEvents: [event(300, 1_200, { status: "afk" })]
+    }), DATE);
+    expect(result[0]?.activeSeconds).toBe(300);
+  });
+
+  it("does not count a passive URL rule when its browser is in the background", () => {
+    const result = calculateDailyProgress([contextGoal(10, true)], activity({
+      windowEvents: [event(0, 900, { app: "Terminal", title: "Shell" })],
+      browserEvents: [event(
+        0,
+        900,
+        { url: "https://stepik.org/lesson/1", title: "Stepik" },
+        DATE,
+        "aw-watcher-web-firefox_host"
+      )],
+      afkEvents: [event(0, 900, { status: "afk" })]
+    }), DATE);
+    expect(result[0]?.activeSeconds).toBe(0);
+  });
+
+  it("chooses only AFK-eligible goals before applying deterministic overlap fallback", () => {
+    const ineligible = goal("a-ineligible", 30, urlRule("stepik.org"));
+    const eligible = goal("z-eligible", 30, urlRule("stepik.org", "primary", true));
+    const result = calculateDailyProgress([ineligible, eligible], activity({
+      windowEvents: [event(0, 600, { app: "Firefox", title: "Stepik" })],
+      browserEvents: [event(
+        0,
+        600,
+        { url: "https://stepik.org/lesson/1", title: "Stepik" },
+        DATE,
+        "aw-watcher-web-firefox_host"
+      )],
+      afkEvents: [event(0, 600, { status: "afk" })]
+    }), DATE);
+    expect(result.find((item) => item.goalId === "a-ineligible")?.activeSeconds).toBe(0);
+    expect(result.find((item) => item.goalId === "z-eligible")?.activeSeconds).toBe(600);
   });
 });

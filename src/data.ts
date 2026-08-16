@@ -33,13 +33,16 @@ function parseRule(value: unknown): GoalRule | undefined {
     return undefined;
   }
 
-  return {
+  const rule = {
     id: value.id,
-    role: value.role === undefined ? "primary" : value.role as GoalRuleRole,
     field: value.field as RuleField,
     operator: value.operator as MatchOperator,
     value: value.value
   };
+  const role = value.role === undefined ? "primary" : value.role as GoalRuleRole;
+  return role === "primary"
+    ? { ...rule, role, countDuringAfk: value.countDuringAfk === true }
+    : { ...rule, role };
 }
 
 function parseGoal(value: unknown): DailyGoal | undefined {
@@ -58,7 +61,7 @@ function parseGoal(value: unknown): DailyGoal | undefined {
     const parsed = parseRule(rule);
     return parsed === undefined ? [] : [parsed];
   });
-  if (rules.length === 0) return undefined;
+  if (!rules.some((rule) => rule.role === "primary")) return undefined;
 
   return {
     id: value.id,

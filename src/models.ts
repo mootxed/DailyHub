@@ -2,13 +2,23 @@ export type RuleField = "url" | "application" | "windowTitle";
 export type MatchOperator = "contains" | "equals";
 export type GoalRuleRole = "primary" | "continuation";
 
-export interface GoalRule {
+interface GoalRuleBase {
   id: string;
-  role: GoalRuleRole;
   field: RuleField;
   operator: MatchOperator;
   value: string;
 }
+
+export interface PrimaryGoalRule extends GoalRuleBase {
+  role: "primary";
+  countDuringAfk: boolean;
+}
+
+export interface ContinuationGoalRule extends GoalRuleBase {
+  role: "continuation";
+}
+
+export type GoalRule = PrimaryGoalRule | ContinuationGoalRule;
 
 export interface DailyGoal {
   id: string;
@@ -75,7 +85,7 @@ export interface ActivityWatchSnapshot {
   activity: DayActivity;
 }
 
-export const DATA_SCHEMA_VERSION = 3;
+export const DATA_SCHEMA_VERSION = 4;
 export const DEFAULT_CONTEXT_TIMEOUT_MINUTES = 10;
 
 export const DEFAULT_SETTINGS: DailyHubSettings = {
@@ -96,7 +106,17 @@ export function createId(): string {
 }
 
 export function createEmptyRule(role: GoalRuleRole = "primary"): GoalRule {
-  return { id: createId(), role, field: "url", operator: "contains", value: "" };
+  const rule = { id: createId(), field: "url" as const, operator: "contains" as const, value: "" };
+  return role === "primary"
+    ? { ...rule, role, countDuringAfk: false }
+    : { ...rule, role };
+}
+
+export function updateGoalEnabled(goals: DailyGoal[], goalId: string, enabled: boolean): boolean {
+  const goal = goals.find((candidate) => candidate.id === goalId);
+  if (goal === undefined) return false;
+  goal.enabled = enabled;
+  return true;
 }
 
 export function createEmptyGoal(): DailyGoal {

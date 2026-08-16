@@ -136,6 +136,21 @@
   gap: var(--size-4-2);
 }
 
+.daily-hub-rule-item {
+  display: grid;
+  gap: var(--size-4-1);
+}
+
+.daily-hub-rule-afk {
+  align-items: flex-start;
+  display: flex;
+  gap: var(--size-4-2);
+}
+
+.daily-hub-rule-afk input {
+  margin-top: var(--size-4-1);
+}
+
 .daily-hub-rule-section {
   margin-top: var(--size-4-5);
 }

@@ -6,9 +6,13 @@ function rule(
   field: GoalRule["field"],
   value: string,
   operator: GoalRule["operator"] = "contains",
-  role: GoalRule["role"] = "primary"
+  role: GoalRule["role"] = "primary",
+  countDuringAfk = false
 ): GoalRule {
-  return { id: `${role}-${field}-${value}`, role, field, operator, value };
+  const base = { id: `${role}-${field}-${value}`, field, operator, value };
+  return role === "primary"
+    ? { ...base, role, countDuringAfk }
+    : { ...base, role };
 }
 
 function goal(rules: GoalRule[]): DailyGoal {

@@ -1,5 +1,5 @@
 import { getLocalDateRange } from "./date";
-import { goalMatches, pickMatchingGoal } from "./matcher";
+import { goalMatches, pickMatchingPrimaryGoal } from "./matcher";
 import type { ActivityContext, ActivityEvent, DailyGoal, DayActivity, GoalProgress } from "./models";
 
 interface TimedEvent {
@@ -129,16 +129,18 @@ export function calculateDailyProgress(
 
     const windowEvent = eventAt(windowEvents, start);
     const browserEvent = eventAt(browserEvents, start, (event) => browserIsActive(windowEvent, event));
-    if (isAfk(eventAt(afkEvents, start))) continue;
     if (windowEvent === undefined && browserEvent === undefined) continue;
 
     const activityContext = contextAt(windowEvent, browserEvent);
-    const primaryGoal = pickMatchingGoal(goals, activityContext, "primary");
+    const duringAfk = isAfk(eventAt(afkEvents, start));
+    const primaryGoal = pickMatchingPrimaryGoal(goals, activityContext, duringAfk);
     if (primaryGoal !== undefined) {
       secondsByGoal.set(primaryGoal.id, (secondsByGoal.get(primaryGoal.id) ?? 0) + (end - start) / 1000);
       currentContext = { goalId: primaryGoal.id, lastRelevantTimestamp: end };
       continue;
     }
+
+    if (duringAfk) continue;
 
     if (currentContext !== undefined) {
       const contextGoal = goalsById.get(currentContext.goalId);

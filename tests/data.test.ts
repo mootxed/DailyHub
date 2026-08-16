@@ -35,48 +35,111 @@ describe("plugin data validation", () => {
         role: "primary",
         field: "url",
         operator: "contains",
-        value: "keybr.com"
+        value: "keybr.com",
+        countDuringAfk: false
       }]
     }]);
     expect(migrated.notifiedCompletions).toEqual(["2026-08-16:goal-1"]);
   });
 
-  it("drops malformed goals and invalid rules while preserving valid data", () => {
+  it("keeps a goal with only a valid primary rule", () => {
     const data = normalizeData({
       schemaVersion: DATA_SCHEMA_VERSION,
       settings: {},
-      goals: [
-        { id: "broken", name: "Broken", targetMinutes: -1, enabled: true, rules: [] },
-        {
-          id: "valid",
-          name: "Valid",
-          targetMinutes: 25,
-          contextTimeoutMinutes: 15,
-          enabled: false,
-          rules: [
-            { id: "bad", field: "unknown", operator: "contains", value: "x" },
-            { id: "bad-role", role: "secondary", field: "url", operator: "contains", value: "x" },
-            { id: "good", role: "continuation", field: "application", operator: "equals", value: "kitty" }
-          ]
-        }
-      ],
+      goals: [{
+        id: "primary-only",
+        name: "Primary only",
+        targetMinutes: 25,
+        enabled: true,
+        rules: [{ id: "primary", role: "primary", field: "url", operator: "contains", value: "keybr.com" }]
+      }],
+      notifiedCompletions: []
+    });
+    expect(data.goals[0]?.rules).toEqual([{
+      id: "primary",
+      role: "primary",
+      field: "url",
+      operator: "contains",
+      value: "keybr.com",
+      countDuringAfk: false
+    }]);
+  });
+
+  it("keeps primary and continuation rules while normalizing their AFK fields", () => {
+    const data = normalizeData({
+      schemaVersion: DATA_SCHEMA_VERSION,
+      settings: {},
+      goals: [{
+        id: "mixed",
+        name: "Mixed",
+        targetMinutes: 25,
+        contextTimeoutMinutes: 15,
+        enabled: false,
+        rules: [
+          { id: "primary", role: "primary", field: "url", operator: "contains", value: "stepik.org", countDuringAfk: true },
+          { id: "continuation", role: "continuation", field: "application", operator: "equals", value: "kitty", countDuringAfk: true }
+        ]
+      }],
       notifiedCompletions: [42, "2026-08-16:valid"]
     });
     expect(data.goals).toEqual([{
-      id: "valid",
-      name: "Valid",
+      id: "mixed",
+      name: "Mixed",
       targetMinutes: 25,
       contextTimeoutMinutes: 15,
       enabled: false,
-      rules: [{
-        id: "good",
-        role: "continuation",
-        field: "application",
-        operator: "equals",
-        value: "kitty"
-      }]
+      rules: [
+        {
+          id: "primary",
+          role: "primary",
+          field: "url",
+          operator: "contains",
+          value: "stepik.org",
+          countDuringAfk: true
+        },
+        {
+          id: "continuation",
+          role: "continuation",
+          field: "application",
+          operator: "equals",
+          value: "kitty"
+        }
+      ]
     }]);
     expect(data.notifiedCompletions).toEqual(["2026-08-16:valid"]);
+  });
+
+  it("drops a continuation-only goal", () => {
+    const data = normalizeData({
+      schemaVersion: DATA_SCHEMA_VERSION,
+      settings: {},
+      goals: [{
+        id: "continuation-only",
+        name: "Continuation only",
+        targetMinutes: 25,
+        enabled: true,
+        rules: [{ id: "continuation", role: "continuation", field: "application", operator: "equals", value: "kitty" }]
+      }]
+    });
+    expect(data.goals).toEqual([]);
+  });
+
+  it("drops a goal whose invalid primary is removed even if its continuation is valid", () => {
+    const data = normalizeData({
+      schemaVersion: DATA_SCHEMA_VERSION,
+      settings: {},
+      goals: [{
+        id: "invalid-primary",
+        name: "Invalid primary",
+        targetMinutes: 25,
+        enabled: true,
+        rules: [
+          { id: "primary", role: "primary", field: "unknown", operator: "contains", value: "stepik.org" },
+          { id: "continuation", role: "continuation", field: "application", operator: "equals", value: "kitty" }
+        ]
+      }]
+    });
+    expect(data.goals).toEqual([]);
   });
 
   it("deduplicates goal ids and falls back for invalid settings", () => {
@@ -86,7 +149,14 @@ describe("plugin data validation", () => {
       targetMinutes: 30,
       contextTimeoutMinutes: 10,
       enabled: true,
-      rules: [{ id: "rule", role: "primary", field: "url", operator: "contains", value: "keybr.com" }]
+      rules: [{
+        id: "rule",
+        role: "primary",
+        field: "url",
+        operator: "contains",
+        value: "keybr.com",
+        countDuringAfk: false
+      }]
     };
     const data = normalizeData({
       schemaVersion: DATA_SCHEMA_VERSION,

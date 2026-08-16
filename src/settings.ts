@@ -85,7 +85,7 @@ export class DailyHubSettingTab extends PluginSettingTab {
     containerEl.createEl("h2", { text: "Daily goals" });
     new Setting(containerEl)
       .setName("Add goal")
-      .setDesc("Rules within a goal use OR logic.")
+      .setDesc("Rules within each section use OR logic.")
       .addButton((button) => button.setCta().setButtonText("Add goal").onClick(() => {
         new GoalEditorModal(this.plugin).open();
       }));
@@ -99,11 +99,12 @@ export class DailyHubSettingTab extends PluginSettingTab {
         .setName(goal.name)
         .setDesc(`${goal.targetMinutes} min · ${goal.rules.length} rule${goal.rules.length === 1 ? "" : "s"}`)
         .addToggle((toggle) => toggle.setValue(goal.enabled).onChange(async (value) => {
-          await this.plugin.upsertGoal({ ...goal, enabled: value });
+          await this.plugin.setGoalEnabled(goal.id, value);
           this.display();
         }))
         .addButton((button) => button.setButtonText("Edit").onClick(() => {
-          new GoalEditorModal(this.plugin, goal).open();
+          const currentGoal = this.plugin.data.goals.find((candidate) => candidate.id === goal.id);
+          if (currentGoal !== undefined) new GoalEditorModal(this.plugin, currentGoal).open();
         }))
         .addButton((button) => button.setWarning().setButtonText("Delete").onClick(async () => {
           if (window.confirm(`Delete daily goal “${goal.name}”?`)) {
@@ -167,7 +168,7 @@ export class DailyHubSettingTab extends PluginSettingTab {
   }
 
   private afkStatusDescription(status: AfkConfigStatus): string {
-    const explanation = "ActivityWatch controls when you become AFK. Daily Hub excludes every interval reported as AFK. Recommended timeout: 60 seconds.";
+    const explanation = "ActivityWatch controls when you become AFK. Daily Hub excludes AFK time unless a matching Primary rule explicitly allows it. Recommended timeout: 60 seconds.";
     switch (status.kind) {
       case "configured":
         return `${explanation} Config file timeout: 60 sec ✓`;
