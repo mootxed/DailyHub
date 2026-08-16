@@ -8,8 +8,8 @@ Daily Hub is a desktop [Obsidian](https://obsidian.md/) community plugin that tr
 
 - A dedicated **Daily Hub** view with live progress bars.
 - Unlimited daily goals with a minimum number of minutes.
-- Case-insensitive `contains` and `equals` rules for URL, application, and window title.
-- OR matching within a goal and deterministic single-goal attribution if goals overlap.
+- Case-insensitive `contains` and `equals` primary/continuation rules for URL, application, and window title.
+- OR matching within each rule group and deterministic single-goal attribution if goals overlap.
 - ActivityWatch window, browser, and AFK event support.
 - Every interval that ActivityWatch reports as `afk` is excluded.
 - Automatic refresh and refresh when Obsidian returns to the foreground.
@@ -97,15 +97,32 @@ Value: keybr.com
 
 When the browser watcher reports a URL containing `keybr.com`, the corresponding browser is the active X11 window, and the AFK watcher does not report `afk`, that time is attributed automatically. A stale browser event is ignored after you switch to Terminal or another application.
 
+## Context-aware goals
+
+Primary rules identify a goal on their own. Continuation rules count only after a primary activity recently established that goal's context. For example:
+
+```text
+Name: DevOps
+Daily minimum: 90 min
+Primary: URL contains stepik.org
+Continuation: Application contains kitty
+Continuation: Application contains terminal
+Continuation: Application contains code
+Context timeout: 10 min
+```
+
+After an active Stepik page identifies DevOps, work in Terminal or VS Code continues to count. Opening those applications without the earlier Stepik activity does not start DevOps. Continuous primary or continuation activity keeps the context alive; the timeout measures how long the goal may be remembered across unrelated or AFK activity. Unrelated activity itself is never counted.
+
 ## How counting works
 
-ActivityWatch remains the source of truth. Daily Hub requests the selected local-day range, clips and sorts events, combines a browser URL only with its corresponding active browser window, removes all AFK intervals, matches timeline segments to enabled goals, and computes progress on demand. It prefers the current ActivityWatch hostname and the newest duplicate bucket for each source. It does not duplicate raw ActivityWatch history into the vault.
+ActivityWatch remains the source of truth. Daily Hub requests the selected local-day range, clips and sorts events, combines a browser URL only with its corresponding active browser window, removes all AFK intervals, matches timeline segments to enabled goals, and computes progress on demand. Context is reconstructed from that timeline for every calculation and is not stored in plugin data. It prefers the current ActivityWatch hostname and the newest duplicate bucket for each source. It does not duplicate raw ActivityWatch history into the vault.
 
-If two goals accidentally match one segment, only the goal with the lexicographically smallest stable goal ID receives the time. This deterministic fallback prevents double-counting; rules are easiest to understand when they do not overlap.
+If two goals' primary rules accidentally match one segment, only the goal with the lexicographically smallest stable goal ID receives the time. This deterministic fallback prevents double-counting; rules are easiest to understand when they do not overlap.
 
 ## MVP limitations
 
 - The dashboard currently displays today; the calculation layer already accepts arbitrary dates.
+- Context starts empty at midnight for each calculated local day; it is not carried across day boundaries.
 - No automatic ActivityWatch binary or browser-extension installation.
 - No manual timers, schedules, weekly/monthly goals, streaks, calendar integrations, or cloud sync.
 - Changes to rules or targets recalculate the entire selected day from current ActivityWatch history and configuration.

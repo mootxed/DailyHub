@@ -24,7 +24,20 @@ describe("plugin data validation", () => {
     expect(requiresDataMigration(legacy)).toBe(true);
     expect(migrated.schemaVersion).toBe(DATA_SCHEMA_VERSION);
     expect(migrated.settings).not.toHaveProperty("afkThresholdSeconds");
-    expect(migrated.goals).toHaveLength(1);
+    expect(migrated.goals).toEqual([{
+      id: "goal-1",
+      name: "Typing",
+      targetMinutes: 30,
+      enabled: true,
+      contextTimeoutMinutes: 10,
+      rules: [{
+        id: "rule-1",
+        role: "primary",
+        field: "url",
+        operator: "contains",
+        value: "keybr.com"
+      }]
+    }]);
     expect(migrated.notifiedCompletions).toEqual(["2026-08-16:goal-1"]);
   });
 
@@ -38,10 +51,12 @@ describe("plugin data validation", () => {
           id: "valid",
           name: "Valid",
           targetMinutes: 25,
+          contextTimeoutMinutes: 15,
           enabled: false,
           rules: [
             { id: "bad", field: "unknown", operator: "contains", value: "x" },
-            { id: "good", field: "application", operator: "equals", value: "kitty" }
+            { id: "bad-role", role: "secondary", field: "url", operator: "contains", value: "x" },
+            { id: "good", role: "continuation", field: "application", operator: "equals", value: "kitty" }
           ]
         }
       ],
@@ -51,8 +66,15 @@ describe("plugin data validation", () => {
       id: "valid",
       name: "Valid",
       targetMinutes: 25,
+      contextTimeoutMinutes: 15,
       enabled: false,
-      rules: [{ id: "good", field: "application", operator: "equals", value: "kitty" }]
+      rules: [{
+        id: "good",
+        role: "continuation",
+        field: "application",
+        operator: "equals",
+        value: "kitty"
+      }]
     }]);
     expect(data.notifiedCompletions).toEqual(["2026-08-16:valid"]);
   });
@@ -62,8 +84,9 @@ describe("plugin data validation", () => {
       id: "same",
       name: "Goal",
       targetMinutes: 30,
+      contextTimeoutMinutes: 10,
       enabled: true,
-      rules: [{ id: "rule", field: "url", operator: "contains", value: "keybr.com" }]
+      rules: [{ id: "rule", role: "primary", field: "url", operator: "contains", value: "keybr.com" }]
     };
     const data = normalizeData({
       schemaVersion: DATA_SCHEMA_VERSION,

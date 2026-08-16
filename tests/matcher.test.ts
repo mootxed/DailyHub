@@ -2,12 +2,17 @@ import { describe, expect, it } from "vitest";
 import { goalMatches, pickMatchingGoal, ruleMatches } from "../src/matcher";
 import type { DailyGoal, GoalRule } from "../src/models";
 
-function rule(field: GoalRule["field"], value: string, operator: GoalRule["operator"] = "contains"): GoalRule {
-  return { id: `${field}-${value}`, field, operator, value };
+function rule(
+  field: GoalRule["field"],
+  value: string,
+  operator: GoalRule["operator"] = "contains",
+  role: GoalRule["role"] = "primary"
+): GoalRule {
+  return { id: `${role}-${field}-${value}`, role, field, operator, value };
 }
 
 function goal(rules: GoalRule[]): DailyGoal {
-  return { id: "goal", name: "Goal", targetMinutes: 30, rules, enabled: true };
+  return { id: "goal", name: "Goal", targetMinutes: 30, rules, contextTimeoutMinutes: 10, enabled: true };
 }
 
 describe("activity matching", () => {
@@ -27,6 +32,15 @@ describe("activity matching", () => {
   it("uses OR semantics for multiple rules", () => {
     const candidate = goal([rule("url", "example.invalid"), rule("application", "terminal")]);
     expect(goalMatches(candidate, { application: "GNOME Terminal" })).toBe(true);
+  });
+
+  it("matches only rules with the requested role", () => {
+    const candidate = goal([
+      rule("url", "stepik.org"),
+      rule("application", "terminal", "contains", "continuation")
+    ]);
+    expect(goalMatches(candidate, { application: "Terminal" })).toBe(false);
+    expect(goalMatches(candidate, { application: "Terminal" }, "continuation")).toBe(true);
   });
 
   it("ignores blank and disabled rules", () => {

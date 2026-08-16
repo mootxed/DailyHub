@@ -1,11 +1,16 @@
 import { getLocalDateRange } from "./date";
-import { pickMatchingGoal } from "./matcher";
+import { goalMatches, pickMatchingGoal } from "./matcher";
 import type { ActivityContext, ActivityEvent, DailyGoal, DayActivity, GoalProgress } from "./models";
 
 interface TimedEvent {
   event: ActivityEvent;
   startMs: number;
   endMs: number;
+}
+
+interface GoalContext {
+  goalId: string;
+  lastRelevantTimestamp: number;
 }
 
 function parseEvents(events: ActivityEvent[], rangeStart: number, rangeEnd: number): TimedEvent[] {
@@ -113,7 +118,9 @@ export function calculateDailyProgress(
   }
 
   const secondsByGoal = new Map(goals.map((goal) => [goal.id, 0]));
+  const goalsById = new Map(goals.map((goal) => [goal.id, goal]));
   const timeline = [...boundaries].sort((left, right) => left - right);
+  let currentContext: GoalContext | undefined;
 
   for (let index = 0; index < timeline.length - 1; index += 1) {
     const start = timeline[index];
@@ -122,12 +129,26 @@ export function calculateDailyProgress(
 
     const windowEvent = eventAt(windowEvents, start);
     const browserEvent = eventAt(browserEvents, start, (event) => browserIsActive(windowEvent, event));
-    if (windowEvent === undefined && browserEvent === undefined) continue;
     if (isAfk(eventAt(afkEvents, start))) continue;
+    if (windowEvent === undefined && browserEvent === undefined) continue;
 
-    const goal = pickMatchingGoal(goals, contextAt(windowEvent, browserEvent));
-    if (goal !== undefined) {
-      secondsByGoal.set(goal.id, (secondsByGoal.get(goal.id) ?? 0) + (end - start) / 1000);
+    const activityContext = contextAt(windowEvent, browserEvent);
+    const primaryGoal = pickMatchingGoal(goals, activityContext, "primary");
+    if (primaryGoal !== undefined) {
+      secondsByGoal.set(primaryGoal.id, (secondsByGoal.get(primaryGoal.id) ?? 0) + (end - start) / 1000);
+      currentContext = { goalId: primaryGoal.id, lastRelevantTimestamp: end };
+      continue;
+    }
+
+    if (currentContext !== undefined) {
+      const contextGoal = goalsById.get(currentContext.goalId);
+      const timeoutMs = (contextGoal?.contextTimeoutMinutes ?? 0) * 60_000;
+      if (contextGoal === undefined || start - currentContext.lastRelevantTimestamp > timeoutMs) {
+        currentContext = undefined;
+      } else if (goalMatches(contextGoal, activityContext, "continuation")) {
+        secondsByGoal.set(contextGoal.id, (secondsByGoal.get(contextGoal.id) ?? 0) + (end - start) / 1000);
+        currentContext.lastRelevantTimestamp = end;
+      }
     }
   }
 

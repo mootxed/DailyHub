@@ -1,8 +1,10 @@
 export type RuleField = "url" | "application" | "windowTitle";
 export type MatchOperator = "contains" | "equals";
+export type GoalRuleRole = "primary" | "continuation";
 
 export interface GoalRule {
   id: string;
+  role: GoalRuleRole;
   field: RuleField;
   operator: MatchOperator;
   value: string;
@@ -13,6 +15,7 @@ export interface DailyGoal {
   name: string;
   targetMinutes: number;
   rules: GoalRule[];
+  contextTimeoutMinutes: number;
   enabled: boolean;
 }
 
@@ -72,7 +75,8 @@ export interface ActivityWatchSnapshot {
   activity: DayActivity;
 }
 
-export const DATA_SCHEMA_VERSION = 2;
+export const DATA_SCHEMA_VERSION = 3;
+export const DEFAULT_CONTEXT_TIMEOUT_MINUTES = 10;
 
 export const DEFAULT_SETTINGS: DailyHubSettings = {
   activityWatchUrl: "http://localhost:5600",
@@ -91,8 +95,8 @@ export function createId(): string {
   return globalThis.crypto.randomUUID();
 }
 
-export function createEmptyRule(): GoalRule {
-  return { id: createId(), field: "url", operator: "contains", value: "" };
+export function createEmptyRule(role: GoalRuleRole = "primary"): GoalRule {
+  return { id: createId(), role, field: "url", operator: "contains", value: "" };
 }
 
 export function createEmptyGoal(): DailyGoal {
@@ -101,6 +105,7 @@ export function createEmptyGoal(): DailyGoal {
     name: "",
     targetMinutes: 30,
     rules: [createEmptyRule()],
+    contextTimeoutMinutes: DEFAULT_CONTEXT_TIMEOUT_MINUTES,
     enabled: true
   };
 }

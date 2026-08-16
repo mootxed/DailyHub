@@ -19,12 +19,35 @@ function event(
   return { timestamp: timestamp(offsetSeconds, date), duration, data, sourceBucketId };
 }
 
-function goal(id: string, targetMinutes: number, rule: GoalRule): DailyGoal {
-  return { id, name: id, targetMinutes, rules: [rule], enabled: true };
+function goal(
+  id: string,
+  targetMinutes: number,
+  rules: GoalRule | GoalRule[],
+  contextTimeoutMinutes = 10
+): DailyGoal {
+  return {
+    id,
+    name: id,
+    targetMinutes,
+    rules: Array.isArray(rules) ? rules : [rules],
+    contextTimeoutMinutes,
+    enabled: true
+  };
 }
 
-function appRule(value: string): GoalRule {
-  return { id: `app-${value}`, field: "application", operator: "equals", value };
+function appRule(value: string, role: GoalRule["role"] = "primary"): GoalRule {
+  return { id: `${role}-app-${value}`, role, field: "application", operator: "equals", value };
+}
+
+function urlRule(value: string, role: GoalRule["role"] = "primary"): GoalRule {
+  return { id: `${role}-url-${value}`, role, field: "url", operator: "contains", value };
+}
+
+function contextGoal(timeoutMinutes = 10): DailyGoal {
+  return goal("devops", 90, [
+    urlRule("stepik.org"),
+    appRule("Terminal", "continuation")
+  ], timeoutMinutes);
 }
 
 function activity(overrides: Partial<DayActivity> = {}): DayActivity {
@@ -117,7 +140,7 @@ describe("daily progress", () => {
   });
 
   it("uses browser URL data alongside the active window", () => {
-    const urlGoal = goal("url-goal", 10, { id: "url", field: "url", operator: "contains", value: "keybr.com" });
+    const urlGoal = goal("url-goal", 10, urlRule("keybr.com"));
     const result = calculateDailyProgress([urlGoal], activity({
       windowEvents: [event(0, 300, { app: "firefox", title: "Keybr" })],
       browserEvents: [event(0, 300, { url: "https://keybr.com", title: "Keybr" })]
@@ -126,7 +149,7 @@ describe("daily progress", () => {
   });
 
   it("does not apply a stale browser URL after Terminal becomes active", () => {
-    const urlGoal = goal("typing", 30, { id: "url", field: "url", operator: "contains", value: "keybr.com" });
+    const urlGoal = goal("typing", 30, urlRule("keybr.com"));
     const result = calculateDailyProgress([urlGoal], activity({
       windowEvents: [
         event(0, 300, { app: "Firefox", title: "Keybr — Mozilla Firefox" }),
@@ -144,7 +167,7 @@ describe("daily progress", () => {
   });
 
   it("selects the browser bucket that matches the active browser", () => {
-    const urlGoal = goal("typing", 30, { id: "url", field: "url", operator: "contains", value: "keybr.com" });
+    const urlGoal = goal("typing", 30, urlRule("keybr.com"));
     const result = calculateDailyProgress([urlGoal], activity({
       windowEvents: [event(0, 600, { app: "Firefox", title: "Keybr — Mozilla Firefox" })],
       browserEvents: [
@@ -156,7 +179,7 @@ describe("daily progress", () => {
   });
 
   it("does not trust a browser URL without an active window event", () => {
-    const urlGoal = goal("typing", 30, { id: "url", field: "url", operator: "contains", value: "keybr.com" });
+    const urlGoal = goal("typing", 30, urlRule("keybr.com"));
     const result = calculateDailyProgress([urlGoal], activity({
       browserEvents: [event(0, 300, { url: "https://keybr.com", title: "Keybr" })]
     }), DATE);
@@ -164,7 +187,7 @@ describe("daily progress", () => {
   });
 
   it("cuts overlapping window, browser, and AFK events at every boundary", () => {
-    const urlGoal = goal("typing", 30, { id: "url", field: "url", operator: "contains", value: "keybr.com" });
+    const urlGoal = goal("typing", 30, urlRule("keybr.com"));
     const result = calculateDailyProgress([urlGoal], activity({
       windowEvents: [event(0, 600, { app: "Firefox", title: "Keybr — Mozilla Firefox" })],
       browserEvents: [event(0, 600, { url: "https://keybr.com", title: "Keybr" })],
@@ -207,5 +230,157 @@ describe("daily progress", () => {
       ]
     }), DATE);
     expect(result[0]?.activeSeconds).toBe(600);
+  });
+
+  it("counts a primary rule without requiring context", () => {
+    const result = calculateDailyProgress([contextGoal()], activity({
+      windowEvents: [event(0, 600, { app: "Firefox", title: "Stepik" })],
+      browserEvents: [event(
+        0,
+        600,
+        { url: "https://stepik.org/lesson/1", title: "Stepik" },
+        DATE,
+        "aw-watcher-web-firefox_host"
+      )]
+    }), DATE);
+    expect(result[0]?.activeSeconds).toBe(600);
+  });
+
+  it("does not count a continuation rule without established context", () => {
+    const result = calculateDailyProgress([contextGoal()], activity({
+      windowEvents: [event(0, 600, { app: "Terminal" })]
+    }), DATE);
+    expect(result[0]?.activeSeconds).toBe(0);
+  });
+
+  it("continues a primary context in a matching application", () => {
+    const result = calculateDailyProgress([contextGoal()], activity({
+      windowEvents: [
+        event(0, 600, { app: "Firefox", title: "Stepik" }),
+        event(600, 1_200, { app: "Terminal" })
+      ],
+      browserEvents: [event(
+        0,
+        600,
+        { url: "https://stepik.org/lesson/1", title: "Stepik" },
+        DATE,
+        "aw-watcher-web-firefox_host"
+      )]
+    }), DATE);
+    expect(result[0]?.activeSeconds).toBe(1_800);
+  });
+
+  it("keeps context alive throughout a long continuous continuation", () => {
+    const result = calculateDailyProgress([contextGoal()], activity({
+      windowEvents: [
+        event(0, 300, { app: "Firefox", title: "Stepik" }),
+        event(300, 1_800, { app: "Terminal" })
+      ],
+      browserEvents: [event(
+        0,
+        300,
+        { url: "https://stepik.org/lesson/1", title: "Stepik" },
+        DATE,
+        "aw-watcher-web-firefox_host"
+      )]
+    }), DATE);
+    expect(result[0]?.activeSeconds).toBe(2_100);
+  });
+
+  it("allows continuation after a short unrelated interruption without counting it", () => {
+    const result = calculateDailyProgress([contextGoal()], activity({
+      windowEvents: [
+        event(0, 300, { app: "Firefox", title: "Stepik" }),
+        event(300, 600, { app: "Terminal" }),
+        event(900, 300, { app: "Discord" }),
+        event(1_200, 600, { app: "Terminal" })
+      ],
+      browserEvents: [event(
+        0,
+        300,
+        { url: "https://stepik.org/lesson/1", title: "Stepik" },
+        DATE,
+        "aw-watcher-web-firefox_host"
+      )]
+    }), DATE);
+    expect(result[0]?.activeSeconds).toBe(1_500);
+  });
+
+  it("expires context after a long unrelated interruption", () => {
+    const result = calculateDailyProgress([contextGoal()], activity({
+      windowEvents: [
+        event(0, 300, { app: "Firefox", title: "Stepik" }),
+        event(300, 600, { app: "Terminal" }),
+        event(900, 900, { app: "Discord" }),
+        event(1_800, 600, { app: "Terminal" })
+      ],
+      browserEvents: [event(
+        0,
+        300,
+        { url: "https://stepik.org/lesson/1", title: "Stepik" },
+        DATE,
+        "aw-watcher-web-firefox_host"
+      )]
+    }), DATE);
+    expect(result[0]?.activeSeconds).toBe(900);
+  });
+
+  it("switches context when another goal has a primary match", () => {
+    const japanese = goal("japanese", 30, appRule("KotoKitsu"));
+    const result = calculateDailyProgress([contextGoal(), japanese], activity({
+      windowEvents: [
+        event(0, 300, { app: "Firefox", title: "Stepik" }),
+        event(300, 300, { app: "Terminal" }),
+        event(600, 300, { app: "KotoKitsu" }),
+        event(900, 300, { app: "Terminal" })
+      ],
+      browserEvents: [event(
+        0,
+        300,
+        { url: "https://stepik.org/lesson/1", title: "Stepik" },
+        DATE,
+        "aw-watcher-web-firefox_host"
+      )]
+    }), DATE);
+    expect(result.find((item) => item.goalId === "devops")?.activeSeconds).toBe(600);
+    expect(result.find((item) => item.goalId === "japanese")?.activeSeconds).toBe(300);
+  });
+
+  it("does not count AFK time or preserve context past its timeout", () => {
+    const result = calculateDailyProgress([contextGoal()], activity({
+      windowEvents: [
+        event(0, 300, { app: "Firefox", title: "Stepik" }),
+        event(300, 300, { app: "Terminal" }),
+        event(600, 1_200, { app: "Terminal" }),
+        event(1_800, 600, { app: "Terminal" })
+      ],
+      browserEvents: [event(
+        0,
+        300,
+        { url: "https://stepik.org/lesson/1", title: "Stepik" },
+        DATE,
+        "aw-watcher-web-firefox_host"
+      )],
+      afkEvents: [event(600, 1_200, { status: "afk" })]
+    }), DATE);
+    expect(result[0]?.activeSeconds).toBe(600);
+  });
+
+  it("reconstructs context when calculating an arbitrary date", () => {
+    const previousDate = "2026-08-15";
+    const result = calculateDailyProgress([contextGoal()], activity({
+      windowEvents: [
+        event(0, 300, { app: "Firefox", title: "Stepik" }, previousDate),
+        event(300, 600, { app: "Terminal" }, previousDate)
+      ],
+      browserEvents: [event(
+        0,
+        300,
+        { url: "https://stepik.org/lesson/1", title: "Stepik" },
+        previousDate,
+        "aw-watcher-web-firefox_host"
+      )]
+    }), previousDate);
+    expect(result[0]?.activeSeconds).toBe(900);
   });
 });

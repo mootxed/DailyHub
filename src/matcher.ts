@@ -1,4 +1,4 @@
-import type { ActivityContext, DailyGoal, GoalRule } from "./models";
+import type { ActivityContext, DailyGoal, GoalRule, GoalRuleRole } from "./models";
 
 const fieldValues: Record<GoalRule["field"], (activity: ActivityContext) => string | undefined> = {
   url: (activity) => activity.url,
@@ -14,14 +14,23 @@ export function ruleMatches(rule: GoalRule, activity: ActivityContext): boolean 
   return rule.operator === "equals" ? candidate === expected : candidate.includes(expected);
 }
 
-export function goalMatches(goal: DailyGoal, activity: ActivityContext): boolean {
-  return goal.enabled && goal.rules.some((rule) => ruleMatches(rule, activity));
+export function goalMatches(
+  goal: DailyGoal,
+  activity: ActivityContext,
+  role: GoalRuleRole = "primary"
+): boolean {
+  return goal.enabled && goal.rules.some((rule) => rule.role === role && ruleMatches(rule, activity));
 }
 
-export function pickMatchingGoal(goals: DailyGoal[], activity: ActivityContext): DailyGoal | undefined {
+export function pickMatchingGoal(
+  goals: DailyGoal[],
+  activity: ActivityContext,
+  role: GoalRuleRole = "primary"
+): DailyGoal | undefined {
   let selected: DailyGoal | undefined;
   for (const goal of goals) {
-    if (goalMatches(goal, activity) && (selected === undefined || goal.id.localeCompare(selected.id) < 0)) {
+    if (goalMatches(goal, activity, role)
+      && (selected === undefined || goal.id.localeCompare(selected.id) < 0)) {
       selected = goal;
     }
   }

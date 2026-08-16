@@ -1,6 +1,12 @@
 import { Modal, Notice, Setting } from "obsidian";
 import type DailyHubPlugin from "./main";
-import { createEmptyGoal, createEmptyRule, type DailyGoal, type GoalRule } from "./models";
+import {
+  createEmptyGoal,
+  createEmptyRule,
+  type DailyGoal,
+  type GoalRule,
+  type GoalRuleRole
+} from "./models";
 
 function copyGoal(goal: DailyGoal): DailyGoal {
   return { ...goal, rules: goal.rules.map((rule) => ({ ...rule })) };
@@ -52,24 +58,62 @@ export class GoalEditorModal extends Modal {
         this.draft.enabled = value;
       }));
 
-    this.contentEl.createEl("h3", { text: "Activity rules" });
-    this.contentEl.createEl("p", {
-      text: "A segment is counted when any rule matches. Matching is case-insensitive.",
+    new Setting(this.contentEl)
+      .setName("Context timeout (minutes)")
+      .setDesc(
+        "How long Daily Hub remembers this goal after unrelated activity. "
+        + "Continuous primary or continuation activity keeps the context alive."
+      )
+      .addText((text) => {
+        text.inputEl.type = "number";
+        text.inputEl.min = "1";
+        text.inputEl.setAttribute("aria-label", "Context timeout in minutes");
+        text.setValue(String(this.draft.contextTimeoutMinutes)).onChange((value) => {
+          this.draft.contextTimeoutMinutes = Number(value);
+        });
+      });
+
+    this.renderRuleSection(
+      "primary",
+      "Primary rules",
+      "These activities directly identify and count toward this goal.",
+      "Add primary rule"
+    );
+    this.renderRuleSection(
+      "continuation",
+      "Continuation rules",
+      "These activities count only after this goal was recently identified.",
+      "Add continuation rule"
+    );
+
+    const actions = this.contentEl.createDiv({ cls: "daily-hub-modal-actions" });
+    const save = actions.createEl("button", { text: "Save goal", cls: "mod-cta" });
+    save.addEventListener("click", () => { void this.save(); });
+  }
+
+  private renderRuleSection(
+    role: GoalRuleRole,
+    title: string,
+    description: string,
+    addLabel: string
+  ): void {
+    const section = this.contentEl.createDiv({ cls: "daily-hub-rule-section" });
+    section.createEl("h3", { text: title });
+    section.createEl("p", {
+      text: description,
       cls: "daily-hub-muted"
     });
 
-    const rules = this.contentEl.createDiv({ cls: "daily-hub-rule-list" });
-    for (const rule of this.draft.rules) this.renderRule(rules, rule);
+    const rules = section.createDiv({ cls: "daily-hub-rule-list" });
+    for (const rule of this.draft.rules.filter((candidate) => candidate.role === role)) {
+      this.renderRule(rules, rule);
+    }
 
-    const actions = this.contentEl.createDiv({ cls: "daily-hub-modal-actions" });
-    const addRule = actions.createEl("button", { text: "Add rule" });
+    const addRule = section.createEl("button", { text: addLabel, cls: "daily-hub-add-rule" });
     addRule.addEventListener("click", () => {
-      this.draft.rules.push(createEmptyRule());
+      this.draft.rules.push(createEmptyRule(role));
       this.render();
     });
-
-    const save = actions.createEl("button", { text: "Save goal", cls: "mod-cta" });
-    save.addEventListener("click", () => { void this.save(); });
   }
 
   private renderRule(container: HTMLElement, rule: GoalRule): void {
@@ -121,8 +165,13 @@ export class GoalEditorModal extends Modal {
       new Notice("Daily Hub: daily minimum must be greater than zero");
       return;
     }
-    if (this.draft.rules.length === 0 || this.draft.rules.some((rule) => rule.value.length === 0)) {
-      new Notice("Daily Hub: add at least one complete activity rule");
+    if (!Number.isFinite(this.draft.contextTimeoutMinutes) || this.draft.contextTimeoutMinutes <= 0) {
+      new Notice("Daily Hub: context timeout must be greater than zero");
+      return;
+    }
+    if (!this.draft.rules.some((rule) => rule.role === "primary")
+      || this.draft.rules.some((rule) => rule.value.length === 0)) {
+      new Notice("Daily Hub: add at least one complete primary rule");
       return;
     }
 

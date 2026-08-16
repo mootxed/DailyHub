@@ -1,16 +1,19 @@
 import {
   DATA_SCHEMA_VERSION,
+  DEFAULT_CONTEXT_TIMEOUT_MINUTES,
   DEFAULT_DATA,
   DEFAULT_SETTINGS,
   type DailyGoal,
   type DailyHubData,
   type GoalRule,
+  type GoalRuleRole,
   type MatchOperator,
   type RuleField
 } from "./models";
 
 const RULE_FIELDS = new Set<RuleField>(["url", "application", "windowTitle"]);
 const MATCH_OPERATORS = new Set<MatchOperator>(["contains", "equals"]);
+const RULE_ROLES = new Set<GoalRuleRole>(["primary", "continuation"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -23,6 +26,7 @@ function nonEmptyString(value: unknown): value is string {
 function parseRule(value: unknown): GoalRule | undefined {
   if (!isRecord(value)
     || !nonEmptyString(value.id)
+    || (value.role !== undefined && !RULE_ROLES.has(value.role as GoalRuleRole))
     || !RULE_FIELDS.has(value.field as RuleField)
     || !MATCH_OPERATORS.has(value.operator as MatchOperator)
     || !nonEmptyString(value.value)) {
@@ -31,6 +35,7 @@ function parseRule(value: unknown): GoalRule | undefined {
 
   return {
     id: value.id,
+    role: value.role === undefined ? "primary" : value.role as GoalRuleRole,
     field: value.field as RuleField,
     operator: value.operator as MatchOperator,
     value: value.value
@@ -60,7 +65,12 @@ function parseGoal(value: unknown): DailyGoal | undefined {
     name: value.name,
     targetMinutes: value.targetMinutes,
     enabled: value.enabled,
-    rules
+    rules,
+    contextTimeoutMinutes: typeof value.contextTimeoutMinutes === "number"
+      && Number.isFinite(value.contextTimeoutMinutes)
+      && value.contextTimeoutMinutes > 0
+      ? value.contextTimeoutMinutes
+      : DEFAULT_CONTEXT_TIMEOUT_MINUTES
   };
 }
 

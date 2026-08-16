@@ -136,6 +136,18 @@
   gap: var(--size-4-2);
 }
 
+.daily-hub-rule-section {
+  margin-top: var(--size-4-5);
+}
+
+.daily-hub-rule-section h3 {
+  margin-bottom: var(--size-4-1);
+}
+
+.daily-hub-add-rule {
+  margin-top: var(--size-4-2);
+}
+
 .daily-hub-rule {
   align-items: center;
   display: grid;
