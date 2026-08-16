@@ -126,6 +126,11 @@
   font-size: var(--font-ui-small);
 }
 
+.daily-hub-warning {
+  color: var(--text-warning);
+  font-size: var(--font-ui-small);
+}
+
 .daily-hub-rule-list {
   display: grid;
   gap: var(--size-4-2);

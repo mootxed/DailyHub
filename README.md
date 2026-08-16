@@ -26,11 +26,13 @@ _Screenshot coming after the first packaged release._
 ## Requirements
 
 - Obsidian Desktop 1.5.0 or newer.
-- ActivityWatch running locally (normally at `http://localhost:5600`).
-- The ActivityWatch browser watcher if you want to use URL rules.
+- ActivityWatch running locally (normally at `http://localhost:5600`) with `aw-watcher-window` and `aw-watcher-afk`.
+- The `aw-watcher-web` browser watcher if you want to use URL rules.
 - Linux/X11 for the currently targeted Linux desktop setup; no Wayland-specific integration is included.
 
 Daily Hub is marked desktop-only because it depends on a local ActivityWatch server and desktop watcher data.
+
+Watcher dependencies are intentionally strict: application and window-title rules require `aw-watcher-window`; URL rules require both `aw-watcher-web` and `aw-watcher-window`, because the active window verifies that the URL belongs to the foreground browser; AFK exclusion requires `aw-watcher-afk`.
 
 ## Install
 

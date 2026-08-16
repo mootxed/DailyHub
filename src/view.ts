@@ -116,19 +116,26 @@ export class DailyHubView extends ItemView {
       const actions = statusBar.createDiv({ cls: "daily-hub-status-actions" });
       this.externalLinkButton(actions, "Install ActivityWatch", ACTIVITYWATCH_DOWNLOAD_URL, true);
       this.externalLinkButton(actions, "Open installation instructions", ACTIVITYWATCH_DOWNLOAD_URL);
-    } else if (!status.browserWatcherAvailable) {
-      statusText.createEl("div", {
-        text: "Application and window-title rules work. Install a browser watcher to use URL rules.",
-        cls: "daily-hub-muted"
-      });
-      this.externalLinkButton(statusBar, "Browser watcher instructions", BROWSER_WATCHER_URL);
-    }
-
-    if (status.kind === "connected" && !status.afkWatcherAvailable) {
-      statusText.createEl("div", {
-        text: "AFK watcher not found. Idle time cannot be excluded until aw-watcher-afk is running.",
-        cls: "daily-hub-muted"
-      });
+    } else {
+      if (!status.windowWatcherAvailable) {
+        statusText.createEl("div", {
+          text: "Window watcher not found. Application, window-title, and URL rules require aw-watcher-window.",
+          cls: "daily-hub-warning"
+        });
+      }
+      if (!status.browserWatcherAvailable) {
+        statusText.createEl("div", {
+          text: "Browser watcher not found. URL rules are unavailable.",
+          cls: "daily-hub-warning"
+        });
+        this.externalLinkButton(statusBar, "Browser watcher instructions", BROWSER_WATCHER_URL);
+      }
+      if (!status.afkWatcherAvailable) {
+        statusText.createEl("div", {
+          text: "AFK watcher not found. Idle time cannot be excluded.",
+          cls: "daily-hub-warning"
+        });
+      }
     }
   }
 

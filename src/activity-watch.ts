@@ -1,14 +1,13 @@
 import { requestUrl } from "obsidian";
+import {
+  getWatcherAvailability,
+  NO_WATCHERS,
+  selectActivityWatchBuckets,
+  type ActivityWatchBucket,
+  type SelectedActivityWatchBuckets
+} from "./activity-watch-buckets";
 import { getLocalDateRange } from "./date";
 import type { ActivityEvent, ActivityWatchSnapshot, ActivityWatchStatus, DayActivity } from "./models";
-
-interface ActivityWatchBucket {
-  id: string;
-  type: string;
-  client?: string;
-  hostname?: string;
-  lastUpdated?: string;
-}
 
 const EMPTY_ACTIVITY: DayActivity = { windowEvents: [], browserEvents: [], afkEvents: [] };
 
@@ -58,20 +57,18 @@ export class ActivityWatchClient {
     try {
       const hostname = await this.getHostname();
       const buckets = await this.getBuckets();
-      const selected = this.selectBuckets(buckets, hostname);
-      const browserWatcherAvailable = selected.browser.length > 0;
+      const selected = selectActivityWatchBuckets(buckets, hostname);
+      const availability = getWatcherAvailability(selected);
       return {
         kind: "connected",
-        browserWatcherAvailable,
-        afkWatcherAvailable: selected.afk.length > 0,
+        ...availability,
         message: "ActivityWatch connected"
       };
     } catch (error) {
       this.logError("Connection check failed", error);
       return {
         kind: "offline",
-        browserWatcherAvailable: false,
-        afkWatcherAvailable: false,
+        ...NO_WATCHERS,
         message: "ActivityWatch not found"
       };
     }
@@ -87,14 +84,13 @@ export class ActivityWatchClient {
     try {
       const hostname = await this.getHostname();
       const buckets = await this.getBuckets();
-      const selected = this.selectBuckets(buckets, hostname);
-      const browserWatcherAvailable = selected.browser.length > 0;
+      const selected = selectActivityWatchBuckets(buckets, hostname);
+      const availability = getWatcherAvailability(selected);
       const activity = await this.loadSelectedActivity(selected, date);
       return {
         status: {
           kind: "connected",
-          browserWatcherAvailable,
-          afkWatcherAvailable: selected.afk.length > 0,
+          ...availability,
           message: "ActivityWatch connected"
         },
         activity
@@ -104,8 +100,7 @@ export class ActivityWatchClient {
       return {
         status: {
           kind: "offline",
-          browserWatcherAvailable: false,
-          afkWatcherAvailable: false,
+          ...NO_WATCHERS,
           message: "ActivityWatch not found"
         },
         activity: EMPTY_ACTIVITY
@@ -122,11 +117,11 @@ export class ActivityWatchClient {
     hostname: string | undefined,
     date: Date | string
   ): Promise<DayActivity> {
-    return this.loadSelectedActivity(this.selectBuckets(buckets, hostname), date);
+    return this.loadSelectedActivity(selectActivityWatchBuckets(buckets, hostname), date);
   }
 
   private async loadSelectedActivity(
-    buckets: { window: ActivityWatchBucket[]; browser: ActivityWatchBucket[]; afk: ActivityWatchBucket[] },
+    buckets: SelectedActivityWatchBuckets,
     date: Date | string
   ): Promise<DayActivity> {
     const [windowEvents, browserEvents, afkEvents] = await Promise.all([
@@ -151,63 +146,6 @@ export class ActivityWatchClient {
       })
     );
     return eventLists.flat();
-  }
-
-  private isWindowBucket(bucket: ActivityWatchBucket): boolean {
-    return bucket.type === "currentwindow" || bucket.id.startsWith("aw-watcher-window");
-  }
-
-  private isBrowserBucket(bucket: ActivityWatchBucket): boolean {
-    return bucket.type === "web.tab.current" || bucket.id.startsWith("aw-watcher-web");
-  }
-
-  private isAfkBucket(bucket: ActivityWatchBucket): boolean {
-    return bucket.type === "afkstatus" || bucket.id.startsWith("aw-watcher-afk");
-  }
-
-  private selectBuckets(
-    buckets: ActivityWatchBucket[],
-    hostname: string | undefined
-  ): { window: ActivityWatchBucket[]; browser: ActivityWatchBucket[]; afk: ActivityWatchBucket[] } {
-    const window = this.preferCurrentHost(buckets.filter((bucket) => this.isWindowBucket(bucket)), hostname);
-    const browser = this.preferCurrentHost(buckets.filter((bucket) => this.isBrowserBucket(bucket)), hostname);
-    const afk = this.preferCurrentHost(buckets.filter((bucket) => this.isAfkBucket(bucket)), hostname);
-    return {
-      window: this.latestPerSource(window, () => "window"),
-      browser: this.latestPerSource(browser, (bucket) => this.browserSource(bucket)),
-      afk: this.latestPerSource(afk, () => "afk")
-    };
-  }
-
-  private preferCurrentHost(buckets: ActivityWatchBucket[], hostname: string | undefined): ActivityWatchBucket[] {
-    if (hostname === undefined) return buckets;
-    const local = buckets.filter((bucket) => bucket.hostname === hostname || bucket.id.endsWith(`_${hostname}`));
-    return local.length > 0 ? local : buckets;
-  }
-
-  private latestPerSource(
-    buckets: ActivityWatchBucket[],
-    source: (bucket: ActivityWatchBucket) => string
-  ): ActivityWatchBucket[] {
-    const latest = new Map<string, ActivityWatchBucket>();
-    for (const bucket of buckets) {
-      const key = source(bucket);
-      const current = latest.get(key);
-      if (current === undefined || this.updatedAt(bucket) > this.updatedAt(current)) latest.set(key, bucket);
-    }
-    return [...latest.values()];
-  }
-
-  private browserSource(bucket: ActivityWatchBucket): string {
-    const hostnameSuffix = bucket.hostname === undefined ? "" : `_${bucket.hostname}`;
-    return hostnameSuffix.length > 0 && bucket.id.endsWith(hostnameSuffix)
-      ? bucket.id.slice(0, -hostnameSuffix.length)
-      : bucket.id;
-  }
-
-  private updatedAt(bucket: ActivityWatchBucket): number {
-    const value = bucket.lastUpdated === undefined ? 0 : new Date(bucket.lastUpdated).getTime();
-    return Number.isFinite(value) ? value : 0;
   }
 
   private async getHostname(): Promise<string | undefined> {

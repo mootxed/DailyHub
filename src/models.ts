@@ -61,6 +61,7 @@ export type ActivityWatchStatusKind = "connected" | "offline";
 
 export interface ActivityWatchStatus {
   kind: ActivityWatchStatusKind;
+  windowWatcherAvailable: boolean;
   browserWatcherAvailable: boolean;
   afkWatcherAvailable: boolean;
   message: string;

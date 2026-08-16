@@ -118,6 +118,9 @@ export class DailyHubSettingTab extends PluginSettingTab {
     const client = new ActivityWatchClient(this.plugin.data.settings.activityWatchUrl);
     const status = await client.getStatus();
     const details = [status.message];
+    if (status.kind === "connected" && !status.windowWatcherAvailable) {
+      details.push("Window watcher not found; application, window-title, and URL rules require it.");
+    }
     if (status.kind === "connected" && !status.afkWatcherAvailable) details.push("AFK watcher not found.");
     if (status.kind === "connected" && !status.browserWatcherAvailable) details.push("Browser watcher not found.");
     setting.setDesc(details.join(" "));
