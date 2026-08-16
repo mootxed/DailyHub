@@ -1,0 +1,32 @@
+{
+  "name": "obsidian-daily-hub",
+  "version": "0.1.0",
+  "description": "Automatic daily time goals in Obsidian powered by ActivityWatch",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc --noEmit --skipLibCheck && node esbuild.config.mjs production",
+    "lint": "eslint . --max-warnings=0",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "keywords": [
+    "obsidian",
+    "activitywatch",
+    "productivity"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@eslint/js": "^9.33.0",
+    "@types/node": "^24.2.1",
+    "esbuild": "^0.25.9",
+    "eslint": "^9.33.0",
+    "eslint-plugin-obsidianmd": "^0.1.9",
+    "globals": "^16.3.0",
+    "obsidian": "^1.8.7",
+    "tslib": "^2.8.1",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.39.1",
+    "vitest": "^3.2.4"
+  }
+}

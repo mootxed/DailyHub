@@ -1,0 +1,9 @@
+{
+  "id": "daily-hub",
+  "name": "Daily Hub",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "Track recurring daily time goals automatically with local ActivityWatch data.",
+  "author": "mootxed",
+  "isDesktopOnly": true
+}
