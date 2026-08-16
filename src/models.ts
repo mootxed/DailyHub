@@ -18,12 +18,12 @@ export interface DailyGoal {
 
 export interface DailyHubSettings {
   activityWatchUrl: string;
-  afkThresholdSeconds: number;
   refreshIntervalSeconds: number;
   completionNotifications: boolean;
 }
 
 export interface DailyHubData {
+  schemaVersion: number;
   settings: DailyHubSettings;
   goals: DailyGoal[];
   notifiedCompletions: string[];
@@ -39,6 +39,7 @@ export interface ActivityEvent {
   timestamp: string;
   duration: number;
   data: Record<string, unknown>;
+  sourceBucketId?: string;
 }
 
 export interface DayActivity {
@@ -61,17 +62,25 @@ export type ActivityWatchStatusKind = "connected" | "offline";
 export interface ActivityWatchStatus {
   kind: ActivityWatchStatusKind;
   browserWatcherAvailable: boolean;
+  afkWatcherAvailable: boolean;
   message: string;
 }
 
+export interface ActivityWatchSnapshot {
+  status: ActivityWatchStatus;
+  activity: DayActivity;
+}
+
+export const DATA_SCHEMA_VERSION = 2;
+
 export const DEFAULT_SETTINGS: DailyHubSettings = {
   activityWatchUrl: "http://localhost:5600",
-  afkThresholdSeconds: 60,
   refreshIntervalSeconds: 60,
   completionNotifications: true
 };
 
 export const DEFAULT_DATA: DailyHubData = {
+  schemaVersion: DATA_SCHEMA_VERSION,
   settings: DEFAULT_SETTINGS,
   goals: [],
   notifiedCompletions: []

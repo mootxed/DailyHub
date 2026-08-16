@@ -1,5 +1,4 @@
 import { ItemView, setIcon, type WorkspaceLeaf } from "obsidian";
-import { ActivityWatchClient } from "./activity-watch";
 import { toLocalDateKey } from "./date";
 import { GoalEditorModal } from "./goal-editor";
 import type DailyHubPlugin from "./main";
@@ -40,15 +39,13 @@ export class DailyHubView extends ItemView {
     this.renderLoading();
 
     const today = new Date();
-    const client = new ActivityWatchClient(this.plugin.data.settings.activityWatchUrl);
-    const snapshot = await client.getDaySnapshot(today);
+    const snapshot = await this.plugin.getActivitySnapshot(today);
     if (sequence !== this.refreshSequence) return;
 
     const progress = calculateDailyProgress(
       this.plugin.data.goals,
       snapshot.activity,
-      today,
-      this.plugin.data.settings.afkThresholdSeconds
+      today
     );
     this.renderDashboard(today, snapshot.status, progress);
     await this.plugin.notifyNewCompletions(toLocalDateKey(today), progress);
@@ -125,6 +122,13 @@ export class DailyHubView extends ItemView {
         cls: "daily-hub-muted"
       });
       this.externalLinkButton(statusBar, "Browser watcher instructions", BROWSER_WATCHER_URL);
+    }
+
+    if (status.kind === "connected" && !status.afkWatcherAvailable) {
+      statusText.createEl("div", {
+        text: "AFK watcher not found. Idle time cannot be excluded until aw-watcher-afk is running.",
+        cls: "daily-hub-muted"
+      });
     }
   }
 

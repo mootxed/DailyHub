@@ -1,10 +1,17 @@
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { App, Notice, PluginSettingTab, Setting } from "obsidian";
 import { ActivityWatchClient } from "./activity-watch";
+import {
+  configureAfkTimeout,
+  inspectAfkConfig,
+  RECOMMENDED_AFK_TIMEOUT_SECONDS,
+  type AfkConfigStatus
+} from "./afk-config";
 import { GoalEditorModal } from "./goal-editor";
 import type DailyHubPlugin from "./main";
 
 const DOWNLOAD_URL = "https://activitywatch.net/downloads/";
 const BROWSER_WATCHER_URL = "https://docs.activitywatch.net/en/latest/watchers.html#web-browser";
+const AFK_CONFIGURATION_URL = "https://docs.activitywatch.net/en/latest/configuration.html#aw-watcher-afk";
 
 export class DailyHubSettingTab extends PluginSettingTab {
   private readonly plugin: DailyHubPlugin;
@@ -30,20 +37,7 @@ export class DailyHubSettingTab extends PluginSettingTab {
           await this.plugin.savePluginData();
         }));
 
-    new Setting(containerEl)
-      .setName("AFK threshold")
-      .setDesc("AFK events at least this long are excluded. Default: 60 seconds.")
-      .addText((text) => {
-        text.inputEl.type = "number";
-        text.inputEl.min = "1";
-        text.setValue(String(this.plugin.data.settings.afkThresholdSeconds)).onChange(async (value) => {
-          const seconds = Number(value);
-          if (Number.isFinite(seconds) && seconds >= 1) {
-            this.plugin.data.settings.afkThresholdSeconds = seconds;
-            await this.plugin.savePluginData();
-          }
-        });
-      });
+    this.renderAfkTracking(containerEl);
 
     new Setting(containerEl)
       .setName("Refresh interval")
@@ -123,6 +117,67 @@ export class DailyHubSettingTab extends PluginSettingTab {
   private async updateConnectionStatus(setting: Setting): Promise<void> {
     const client = new ActivityWatchClient(this.plugin.data.settings.activityWatchUrl);
     const status = await client.getStatus();
-    setting.setDesc(status.message);
+    const details = [status.message];
+    if (status.kind === "connected" && !status.afkWatcherAvailable) details.push("AFK watcher not found.");
+    if (status.kind === "connected" && !status.browserWatcherAvailable) details.push("Browser watcher not found.");
+    setting.setDesc(details.join(" "));
+  }
+
+  private renderAfkTracking(container: HTMLElement): void {
+    const setting = new Setting(container)
+      .setName("AFK tracking")
+      .setDesc("Checking ActivityWatch AFK configuration…")
+      .addButton((button) => button.setButtonText("Configure ActivityWatch").onClick(async () => {
+        const status = await inspectAfkConfig();
+        if (status.configPath === undefined || status.kind === "missing" || status.kind === "error") {
+          new Notice("Daily Hub: ActivityWatch AFK config was not found. Use the official instructions.");
+          await this.updateAfkStatus(setting);
+          return;
+        }
+        const confirmed = window.confirm(
+          `Set ActivityWatch AFK timeout to ${RECOMMENDED_AFK_TIMEOUT_SECONDS} seconds?\n\n`
+          + `Daily Hub will create a backup before updating:\n${status.configPath}`
+        );
+        if (!confirmed) return;
+
+        button.setDisabled(true);
+        try {
+          const result = await configureAfkTimeout();
+          new Notice(`Daily Hub: ActivityWatch AFK timeout set to 60 seconds. Restart ActivityWatch.\nBackup: ${result.backupPath}`, 10000);
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          console.warn(`[Daily Hub] Could not configure ActivityWatch AFK timeout: ${detail}`);
+          new Notice(`Daily Hub: could not update ActivityWatch AFK config. ${detail}`);
+        } finally {
+          button.setDisabled(false);
+          await this.updateAfkStatus(setting);
+        }
+      }))
+      .addButton((button) => button.setButtonText("Official instructions").onClick(() => {
+        window.open(AFK_CONFIGURATION_URL, "_blank", "noopener,noreferrer");
+      }));
+    void this.updateAfkStatus(setting);
+  }
+
+  private async updateAfkStatus(setting: Setting): Promise<void> {
+    setting.setDesc(this.afkStatusDescription(await inspectAfkConfig()));
+  }
+
+  private afkStatusDescription(status: AfkConfigStatus): string {
+    const explanation = "ActivityWatch controls when you become AFK. Daily Hub excludes every interval reported as AFK. Recommended timeout: 60 seconds.";
+    switch (status.kind) {
+      case "configured":
+        return `${explanation} Config file timeout: 60 sec ✓`;
+      case "different":
+        return `${explanation} Config file timeout: ${status.timeoutSeconds ?? "unknown"} sec.`;
+      case "not-explicit":
+        return `${explanation} The timeout is not explicitly set, so Daily Hub cannot detect the effective value.`;
+      case "missing":
+        return `${explanation} ActivityWatch config was not found at the documented Linux path.`;
+      case "unsupported":
+        return `${explanation} ${status.message ?? "Automatic configuration is unavailable."}`;
+      case "error":
+        return `${explanation} Daily Hub could not safely read the config file.`;
+    }
   }
 }

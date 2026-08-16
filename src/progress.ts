@@ -18,7 +18,11 @@ function parseEvents(events: ActivityEvent[], rangeStart: number, rangeEnd: numb
   }).sort((left, right) => left.startMs - right.startMs);
 }
 
-function eventAt(events: TimedEvent[], timestamp: number): TimedEvent | undefined {
+function eventAt(
+  events: TimedEvent[],
+  timestamp: number,
+  predicate: (event: TimedEvent) => boolean = () => true
+): TimedEvent | undefined {
   let low = 0;
   let high = events.length;
   while (low < high) {
@@ -30,7 +34,7 @@ function eventAt(events: TimedEvent[], timestamp: number): TimedEvent | undefine
 
   for (let index = low - 1; index >= 0; index -= 1) {
     const event = events[index];
-    if (event !== undefined && event.endMs > timestamp) return event;
+    if (event !== undefined && event.endMs > timestamp && predicate(event)) return event;
   }
   return undefined;
 }
@@ -40,26 +44,60 @@ function stringData(event: TimedEvent | undefined, key: string): string | undefi
   return typeof value === "string" ? value : undefined;
 }
 
+function normalizeIdentity(value: string): string {
+  return value.toLocaleLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function browserIdentity(event: TimedEvent): string | undefined {
+  const match = /^aw-watcher-web-([^_]+)/i.exec(event.event.sourceBucketId ?? "");
+  return match?.[1];
+}
+
+const CHROMIUM_APPLICATIONS = ["chrome", "chromium", "edge", "vivaldi"];
+const FIREFOX_APPLICATIONS = ["firefox", "librewolf", "waterfox", "floorp"];
+const BROWSER_APPLICATIONS = [...CHROMIUM_APPLICATIONS, ...FIREFOX_APPLICATIONS, "brave", "opera", "safari", "browser"];
+
+function containsAny(value: string, candidates: string[]): boolean {
+  return candidates.some((candidate) => value.includes(candidate));
+}
+
+function browserIsActive(windowEvent: TimedEvent | undefined, browserEvent: TimedEvent | undefined): boolean {
+  if (windowEvent === undefined || browserEvent === undefined) return false;
+  const application = normalizeIdentity(stringData(windowEvent, "app") ?? "");
+  const sourceBrowser = normalizeIdentity(browserIdentity(browserEvent) ?? "");
+  if (application.length > 0 && sourceBrowser.length > 0 && application.includes(sourceBrowser)) return true;
+
+  if (sourceBrowser.includes("chrome") || sourceBrowser.includes("chromium")) {
+    return containsAny(application, CHROMIUM_APPLICATIONS);
+  }
+  if (sourceBrowser.includes("firefox")) return containsAny(application, FIREFOX_APPLICATIONS);
+  if (sourceBrowser.length > 0 && sourceBrowser !== "unknown") return false;
+
+  const windowTitle = stringData(windowEvent, "title")?.trim().toLocaleLowerCase() ?? "";
+  const browserTitle = stringData(browserEvent, "title")?.trim().toLocaleLowerCase() ?? "";
+  return containsAny(application, BROWSER_APPLICATIONS)
+    && windowTitle.length > 0
+    && browserTitle.length > 0
+    && (windowTitle.includes(browserTitle) || browserTitle.includes(windowTitle));
+}
+
 function contextAt(windowEvent: TimedEvent | undefined, browserEvent: TimedEvent | undefined): ActivityContext {
   return {
     application: stringData(windowEvent, "app"),
-    windowTitle: stringData(windowEvent, "title") ?? stringData(browserEvent, "title"),
+    windowTitle: stringData(windowEvent, "title"),
     url: stringData(browserEvent, "url")
   };
 }
 
-function isAfk(event: TimedEvent | undefined, thresholdSeconds: number): boolean {
+function isAfk(event: TimedEvent | undefined): boolean {
   if (event === undefined) return false;
-  const status = stringData(event, "status")?.toLocaleLowerCase();
-  const durationSeconds = event.event.duration;
-  return status === "afk" && durationSeconds >= thresholdSeconds;
+  return stringData(event, "status")?.trim().toLocaleLowerCase() === "afk";
 }
 
 export function calculateDailyProgress(
   goals: DailyGoal[],
   activity: DayActivity,
-  date: Date | string,
-  afkThresholdSeconds: number
+  date: Date | string
 ): GoalProgress[] {
   const range = getLocalDateRange(date);
   const rangeStart = range.start.getTime();
@@ -83,9 +121,9 @@ export function calculateDailyProgress(
     if (start === undefined || end === undefined || end <= start) continue;
 
     const windowEvent = eventAt(windowEvents, start);
-    const browserEvent = eventAt(browserEvents, start);
+    const browserEvent = eventAt(browserEvents, start, (event) => browserIsActive(windowEvent, event));
     if (windowEvent === undefined && browserEvent === undefined) continue;
-    if (isAfk(eventAt(afkEvents, start), afkThresholdSeconds)) continue;
+    if (isAfk(eventAt(afkEvents, start))) continue;
 
     const goal = pickMatchingGoal(goals, contextAt(windowEvent, browserEvent));
     if (goal !== undefined) {
@@ -111,10 +149,9 @@ export function getGoalProgress(
   goalId: string,
   goals: DailyGoal[],
   activity: DayActivity,
-  date: Date | string,
-  afkThresholdSeconds: number
+  date: Date | string
 ): GoalProgress | undefined {
-  return calculateDailyProgress(goals, activity, date, afkThresholdSeconds).find(
+  return calculateDailyProgress(goals, activity, date).find(
     (progress) => progress.goalId === goalId
   );
 }

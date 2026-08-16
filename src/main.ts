@@ -1,45 +1,25 @@
 import { Notice, Plugin, type WorkspaceLeaf } from "obsidian";
+import { ActivityWatchClient } from "./activity-watch";
+import { normalizeData, requiresDataMigration } from "./data";
 import { toLocalDateKey } from "./date";
 import { GoalEditorModal } from "./goal-editor";
-import { DEFAULT_DATA, DEFAULT_SETTINGS, type DailyGoal, type DailyHubData, type GoalProgress } from "./models";
+import { DEFAULT_DATA, type ActivityWatchSnapshot, type DailyGoal, type DailyHubData, type GoalProgress } from "./models";
 import { DailyHubSettingTab } from "./settings";
 import { DAILY_HUB_VIEW_TYPE, DailyHubView } from "./view";
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function normalizeData(value: unknown): DailyHubData {
-  if (!isRecord(value)) return structuredClone(DEFAULT_DATA);
-  const settings = isRecord(value.settings) ? value.settings : {};
-  return {
-    settings: {
-      activityWatchUrl: typeof settings.activityWatchUrl === "string"
-        ? settings.activityWatchUrl
-        : DEFAULT_SETTINGS.activityWatchUrl,
-      afkThresholdSeconds: typeof settings.afkThresholdSeconds === "number"
-        ? settings.afkThresholdSeconds
-        : DEFAULT_SETTINGS.afkThresholdSeconds,
-      refreshIntervalSeconds: typeof settings.refreshIntervalSeconds === "number"
-        ? settings.refreshIntervalSeconds
-        : DEFAULT_SETTINGS.refreshIntervalSeconds,
-      completionNotifications: typeof settings.completionNotifications === "boolean"
-        ? settings.completionNotifications
-        : DEFAULT_SETTINGS.completionNotifications
-    },
-    goals: Array.isArray(value.goals) ? value.goals as DailyGoal[] : [],
-    notifiedCompletions: Array.isArray(value.notifiedCompletions)
-      ? value.notifiedCompletions.filter((item): item is string => typeof item === "string")
-      : []
-  };
-}
 
 export default class DailyHubPlugin extends Plugin {
   data: DailyHubData = structuredClone(DEFAULT_DATA);
   private refreshTimer: number | undefined;
+  private activityRequest: { key: string; promise: Promise<ActivityWatchSnapshot> } | undefined;
 
   override async onload(): Promise<void> {
-    this.data = normalizeData(await this.loadData() as unknown);
+    const storedData = await this.loadData() as unknown;
+    this.data = normalizeData(storedData);
+    const notificationCount = this.data.notifiedCompletions.length;
+    this.pruneNotifications(toLocalDateKey(new Date()));
+    if (requiresDataMigration(storedData) || notificationCount !== this.data.notifiedCompletions.length) {
+      await this.savePluginData();
+    }
 
     this.registerView(DAILY_HUB_VIEW_TYPE, (leaf: WorkspaceLeaf) => new DailyHubView(leaf, this));
     this.addRibbonIcon("calendar-check", "Open Daily Hub", () => { void this.activateView(); });
@@ -91,6 +71,18 @@ export default class DailyHubPlugin extends Plugin {
       .map((leaf) => leaf.view)
       .filter((view): view is DailyHubView => view instanceof DailyHubView);
     await Promise.all(views.map((view) => view.refresh()));
+  }
+
+  getActivitySnapshot(date: Date): Promise<ActivityWatchSnapshot> {
+    const key = `${this.data.settings.activityWatchUrl}:${toLocalDateKey(date)}`;
+    if (this.activityRequest?.key === key) return this.activityRequest.promise;
+
+    const client = new ActivityWatchClient(this.data.settings.activityWatchUrl);
+    const promise = client.getDaySnapshot(date).finally(() => {
+      if (this.activityRequest?.promise === promise) this.activityRequest = undefined;
+    });
+    this.activityRequest = { key, promise };
+    return promise;
   }
 
   resetRefreshInterval(): void {
