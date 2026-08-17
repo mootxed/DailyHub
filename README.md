@@ -119,6 +119,8 @@ If Daily Hub cannot locate the file, follow the [official ActivityWatch configur
 
 URL matching requires an ActivityWatch browser extension. Install the watcher for your browser by following the [official browser watcher instructions](https://docs.activitywatch.net/en/latest/watchers.html#web-browser). Daily Hub does not attempt to install browser extensions automatically. Without it, application and window-title rules continue to work and the dashboard explains that URL data is unavailable.
 
+Short gaps in browser events may be bridged for up to two minutes when the foreground application is still the same browser and its non-empty window title contains the last reported page title. A browser or title change, newer evidence from that browser, or the grace-period limit ends the inferred context immediately. Daily Hub never infers a URL without recent real browser data.
+
 ## Example: keybr.com
 
 Create a goal from **Daily Hub → Add goal**:
@@ -154,7 +156,7 @@ For passive activities such as video lessons, a specific Primary rule can enable
 
 ## How counting works
 
-ActivityWatch remains the source of truth. Daily Hub requests the selected local-day range, clips and sorts events, combines a browser URL only with its corresponding active browser window, applies rule-aware AFK exclusion, matches timeline segments to enabled goals, and computes progress on demand. Context is reconstructed from that timeline for every calculation and is not stored in plugin data. It prefers the current ActivityWatch hostname and the newest duplicate bucket for each source. It does not duplicate raw ActivityWatch history into the vault.
+ActivityWatch remains the source of truth. Daily Hub requests the selected local-day range, clips and sorts events, combines a browser URL only with its corresponding active browser window (including the bounded gap handling described above), applies rule-aware AFK exclusion, matches timeline segments to enabled goals, and computes progress on demand. Context is reconstructed from that timeline for every calculation and is not stored in plugin data. It prefers the current ActivityWatch hostname and the newest duplicate bucket for each source. It does not duplicate raw ActivityWatch history into the vault.
 
 New goals only track ActivityWatch activity from the moment they are created. Existing legacy goals from earlier plugin versions retain their historical behavior because their original creation timestamps are unknown.
 

@@ -14,6 +14,8 @@ interface GoalContext {
   lastPrimaryTimestamp: number;
 }
 
+const BROWSER_CONTEXT_GRACE_MS = 120_000;
+
 function parseEvents(events: ActivityEvent[], rangeStart: number, rangeEnd: number): TimedEvent[] {
   return events.flatMap((event) => {
     const eventStart = new Date(event.timestamp).getTime();
@@ -45,6 +47,18 @@ function eventAt(
   return undefined;
 }
 
+function latestEventAtOrBefore(events: TimedEvent[], timestamp: number): TimedEvent | undefined {
+  let low = 0;
+  let high = events.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    const event = events[middle];
+    if (event !== undefined && event.startMs <= timestamp) low = middle + 1;
+    else high = middle;
+  }
+  return events[low - 1];
+}
+
 function stringData(event: TimedEvent | undefined, key: string): string | undefined {
   const value = event?.event.data[key];
   return typeof value === "string" ? value : undefined;
@@ -57,6 +71,23 @@ function normalizeIdentity(value: string): string {
 function browserIdentity(event: TimedEvent): string | undefined {
   const match = /^aw-watcher-web-([^_]+)/i.exec(event.event.sourceBucketId ?? "");
   return match?.[1];
+}
+
+function browserSourceKey(event: TimedEvent): string | undefined {
+  const identity = normalizeIdentity(browserIdentity(event) ?? "");
+  return identity.length > 0 && identity !== "unknown" ? identity : undefined;
+}
+
+function indexBrowserEvents(events: TimedEvent[]): Map<string, TimedEvent[]> {
+  const eventsBySource = new Map<string, TimedEvent[]>();
+  for (const event of events) {
+    const source = browserSourceKey(event);
+    if (source === undefined) continue;
+    const sourceEvents = eventsBySource.get(source) ?? [];
+    sourceEvents.push(event);
+    eventsBySource.set(source, sourceEvents);
+  }
+  return eventsBySource;
 }
 
 const CHROMIUM_APPLICATIONS = ["chrome", "chromium", "edge", "vivaldi"];
@@ -87,6 +118,40 @@ function browserIsActive(windowEvent: TimedEvent | undefined, browserEvent: Time
     && (windowTitle.includes(browserTitle) || browserTitle.includes(windowTitle));
 }
 
+function browserTitleMatchesWindow(windowEvent: TimedEvent, browserEvent: TimedEvent): boolean {
+  const windowTitle = stringData(windowEvent, "title")?.trim().toLocaleLowerCase() ?? "";
+  const browserTitle = stringData(browserEvent, "title")?.trim().toLocaleLowerCase() ?? "";
+  return windowTitle.length > 0 && browserTitle.length > 0 && windowTitle.includes(browserTitle);
+}
+
+function findBrowserContextAt(
+  browserEvents: TimedEvent[],
+  browserEventsBySource: Map<string, TimedEvent[]>,
+  windowEvent: TimedEvent | undefined,
+  timestamp: number
+): TimedEvent | undefined {
+  const activeEvent = eventAt(browserEvents, timestamp, (event) => browserIsActive(windowEvent, event));
+  if (activeEvent !== undefined) return activeEvent;
+  if (windowEvent === undefined) return undefined;
+
+  let latestEvidence: TimedEvent | undefined;
+  for (const sourceEvents of browserEventsBySource.values()) {
+    const candidate = latestEventAtOrBefore(sourceEvents, timestamp);
+    if (candidate === undefined || !browserIsActive(windowEvent, candidate)) continue;
+    if (latestEvidence === undefined || candidate.startMs > latestEvidence.startMs) {
+      latestEvidence = candidate;
+    }
+  }
+
+  if (latestEvidence === undefined) return undefined;
+  const graceEnd = latestEvidence.endMs + BROWSER_CONTEXT_GRACE_MS;
+  return timestamp >= latestEvidence.endMs
+    && timestamp < graceEnd
+    && browserTitleMatchesWindow(windowEvent, latestEvidence)
+    ? latestEvidence
+    : undefined;
+}
+
 function contextAt(windowEvent: TimedEvent | undefined, browserEvent: TimedEvent | undefined): ActivityContext {
   return {
     application: stringData(windowEvent, "app"),
@@ -110,12 +175,17 @@ export function calculateDailyProgress(
   const rangeEnd = range.end.getTime();
   const windowEvents = parseEvents(activity.windowEvents, rangeStart, rangeEnd);
   const browserEvents = parseEvents(activity.browserEvents, rangeStart, rangeEnd);
+  const browserEventsBySource = indexBrowserEvents(browserEvents);
   const afkEvents = parseEvents(activity.afkEvents, rangeStart, rangeEnd);
   const boundaries = new Set<number>([rangeStart, rangeEnd]);
 
   for (const timed of [...windowEvents, ...browserEvents, ...afkEvents]) {
     boundaries.add(timed.startMs);
     boundaries.add(timed.endMs);
+  }
+  for (const browserEvent of browserEvents) {
+    const graceEnd = browserEvent.endMs + BROWSER_CONTEXT_GRACE_MS;
+    if (graceEnd > rangeStart && graceEnd < rangeEnd) boundaries.add(graceEnd);
   }
   for (const goal of goals) {
     const trackingStartMs = getTrackingStartMs(goal);
@@ -135,7 +205,7 @@ export function calculateDailyProgress(
     if (start === undefined || end === undefined || end <= start) continue;
 
     const windowEvent = eventAt(windowEvents, start);
-    const browserEvent = eventAt(browserEvents, start, (event) => browserIsActive(windowEvent, event));
+    const browserEvent = findBrowserContextAt(browserEvents, browserEventsBySource, windowEvent, start);
     if (windowEvent === undefined && browserEvent === undefined) continue;
 
     const activityContext = contextAt(windowEvent, browserEvent);

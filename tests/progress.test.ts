@@ -162,6 +162,344 @@ describe("daily progress", () => {
     expect(result[0]?.activeSeconds).toBe(300);
   });
 
+  it("bridges the real-data-shaped keybr browser heartbeat gap", () => {
+    const typing = goal("typing", 30, urlRule("keybr.com"));
+    const result = calculateDailyProgress([typing], activity({
+      windowEvents: [event(0, 130.323, { app: "Google-chrome", title: "Practice - Google Chrome" })],
+      browserEvents: [event(
+        0,
+        46.157,
+        { url: "https://www.keybr.com/", title: "Practice" },
+        DATE,
+        "aw-watcher-web-chrome_fedora"
+      )],
+      afkEvents: [event(0, 130.323, { status: "not-afk" })]
+    }), DATE);
+
+    expect(result[0]?.activeSeconds).toBeCloseTo(130.323, 3);
+  });
+
+  it("clips inferred browser context at the two-minute grace boundary", () => {
+    const typing = goal("typing", 30, urlRule("keybr.com"));
+    const result = calculateDailyProgress([typing], activity({
+      windowEvents: [event(0, 300, { app: "Google-chrome", title: "Practice - Google Chrome" })],
+      browserEvents: [event(
+        0,
+        30,
+        { url: "https://www.keybr.com/", title: "Practice" },
+        DATE,
+        "aw-watcher-web-chrome_fedora"
+      )]
+    }), DATE);
+
+    expect(result[0]?.activeSeconds).toBe(150);
+  });
+
+  it("stops inferred browser context as soon as the window title changes", () => {
+    const typing = goal("typing", 30, urlRule("keybr.com"));
+    const result = calculateDailyProgress([typing], activity({
+      windowEvents: [
+        event(0, 60, { app: "Google-chrome", title: "PRACTICE - Google Chrome" }),
+        event(60, 120, { app: "Google-chrome", title: "ChatGPT - Google Chrome" })
+      ],
+      browserEvents: [event(
+        0,
+        30,
+        { url: "https://www.keybr.com/", title: " practice " },
+        DATE,
+        "aw-watcher-web-chrome_fedora"
+      )]
+    }), DATE);
+
+    expect(result[0]?.activeSeconds).toBe(60);
+  });
+
+  it("does not carry Chrome browser context into a Firefox foreground window", () => {
+    const typing = goal("typing", 30, urlRule("keybr.com"));
+    const result = calculateDailyProgress([typing], activity({
+      windowEvents: [event(0, 120, { app: "Firefox", title: "Practice - Mozilla Firefox" })],
+      browserEvents: [event(
+        0,
+        30,
+        { url: "https://www.keybr.com/", title: "Practice" },
+        DATE,
+        "aw-watcher-web-chrome_fedora"
+      )]
+    }), DATE);
+
+    expect(result[0]?.activeSeconds).toBe(0);
+  });
+
+  it("stops inferred browser context as soon as the foreground application changes", () => {
+    const typing = goal("typing", 30, urlRule("keybr.com"));
+    const result = calculateDailyProgress([typing], activity({
+      windowEvents: [
+        event(0, 60, { app: "Google-chrome", title: "Practice - Google Chrome" }),
+        event(60, 60, { app: "Obsidian", title: "Practice" })
+      ],
+      browserEvents: [event(
+        0,
+        30,
+        { url: "https://www.keybr.com/", title: "Practice" },
+        DATE,
+        "aw-watcher-web-chrome_fedora"
+      )]
+    }), DATE);
+
+    expect(result[0]?.activeSeconds).toBe(60);
+  });
+
+  it("uses the latest same-browser evidence instead of searching back for a matching title", () => {
+    const typing = goal("typing", 30, urlRule("keybr.com"));
+    const result = calculateDailyProgress([typing], activity({
+      windowEvents: [event(0, 120, { app: "Google-chrome", title: "Practice - Google Chrome" })],
+      browserEvents: [
+        event(
+          0,
+          30,
+          { url: "https://www.keybr.com/", title: "Practice" },
+          DATE,
+          "aw-watcher-web-chrome_fedora"
+        ),
+        event(
+          40,
+          10,
+          { url: "https://chatgpt.com/", title: "ChatGPT" },
+          DATE,
+          "aw-watcher-web-chrome_fedora"
+        )
+      ]
+    }), DATE);
+
+    expect(result[0]?.activeSeconds).toBe(40);
+  });
+
+  it("does not let evidence from another browser cancel the foreground browser context", () => {
+    const typing = goal("typing", 30, urlRule("keybr.com"));
+    const result = calculateDailyProgress([typing], activity({
+      windowEvents: [event(0, 100, { app: "Google-chrome", title: "Practice - Google Chrome" })],
+      browserEvents: [
+        event(
+          0,
+          30,
+          { url: "https://www.keybr.com/", title: "Practice" },
+          DATE,
+          "aw-watcher-web-chrome_fedora"
+        ),
+        event(
+          40,
+          10,
+          { url: "https://example.com/", title: "Example" },
+          DATE,
+          "aw-watcher-web-firefox_fedora"
+        )
+      ]
+    }), DATE);
+
+    expect(result[0]?.activeSeconds).toBe(100);
+  });
+
+  it("always uses a real active browser event instead of inferred context", () => {
+    const typing = goal("typing", 30, urlRule("keybr.com"));
+    const result = calculateDailyProgress([typing], activity({
+      windowEvents: [event(0, 80, { app: "Google-chrome", title: "Practice - Google Chrome" })],
+      browserEvents: [
+        event(
+          0,
+          30,
+          { url: "https://www.keybr.com/", title: "Practice" },
+          DATE,
+          "aw-watcher-web-chrome_fedora"
+        ),
+        event(
+          20,
+          60,
+          { url: "https://chatgpt.com/", title: "ChatGPT" },
+          DATE,
+          "aw-watcher-web-chrome_fedora"
+        )
+      ]
+    }), DATE);
+
+    expect(result[0]?.activeSeconds).toBe(20);
+  });
+
+  it("can carry forward a tiny browser heartbeat without extending past grace", () => {
+    const typing = goal("typing", 30, urlRule("keybr.com"));
+    const result = calculateDailyProgress([typing], activity({
+      windowEvents: [event(0, 180, { app: "Google-chrome", title: "Practice - Google Chrome" })],
+      browserEvents: [event(
+        0,
+        0.001,
+        { url: "https://www.keybr.com/", title: "Practice" },
+        DATE,
+        "aw-watcher-web-chrome_fedora"
+      )]
+    }), DATE);
+
+    expect(result[0]?.activeSeconds).toBeCloseTo(120.001, 3);
+  });
+
+  it("does not infer browser context from an empty browser title", () => {
+    const typing = goal("typing", 30, urlRule("keybr.com"));
+    const result = calculateDailyProgress([typing], activity({
+      windowEvents: [event(0, 120, { app: "Google-chrome", title: "Practice - Google Chrome" })],
+      browserEvents: [event(
+        0,
+        30,
+        { url: "https://www.keybr.com/", title: "" },
+        DATE,
+        "aw-watcher-web-chrome_fedora"
+      )]
+    }), DATE);
+
+    expect(result[0]?.activeSeconds).toBe(30);
+  });
+
+  it("does not infer browser context from an empty window title", () => {
+    const typing = goal("typing", 30, urlRule("keybr.com"));
+    const result = calculateDailyProgress([typing], activity({
+      windowEvents: [event(0, 120, { app: "Google-chrome", title: "" })],
+      browserEvents: [event(
+        0,
+        30,
+        { url: "https://www.keybr.com/", title: "Practice" },
+        DATE,
+        "aw-watcher-web-chrome_fedora"
+      )]
+    }), DATE);
+
+    expect(result[0]?.activeSeconds).toBe(30);
+  });
+
+  it("does not infer browser context without an identifiable browser source", () => {
+    const typing = goal("typing", 30, urlRule("keybr.com"));
+    const result = calculateDailyProgress([typing], activity({
+      windowEvents: [event(0, 120, { app: "Google-chrome", title: "Practice - Google Chrome" })],
+      browserEvents: [event(0, 30, { url: "https://www.keybr.com/", title: "Practice" })]
+    }), DATE);
+
+    expect(result[0]?.activeSeconds).toBe(30);
+  });
+
+  it("does not infer a URL when browser watcher data is missing", () => {
+    const typing = goal("typing", 30, urlRule("keybr.com"));
+    const result = calculateDailyProgress([typing], activity({
+      windowEvents: [event(0, 120, { app: "Google-chrome", title: "Practice - Google Chrome" })]
+    }), DATE);
+
+    expect(result[0]?.activeSeconds).toBe(0);
+  });
+
+  it("does not mutate ActivityWatch events while inferring browser context", () => {
+    const dayActivity = activity({
+      windowEvents: [event(0, 120, { app: "Google-chrome", title: "Practice - Google Chrome" })],
+      browserEvents: [event(
+        0,
+        30,
+        { url: "https://www.keybr.com/", title: "Practice" },
+        DATE,
+        "aw-watcher-web-chrome_fedora"
+      )]
+    });
+    const original = JSON.stringify(dayActivity);
+
+    calculateDailyProgress([goal("typing", 30, urlRule("keybr.com"))], dayActivity, DATE);
+
+    expect(JSON.stringify(dayActivity)).toBe(original);
+  });
+
+  it("keeps deterministic overlap attribution during inferred browser context", () => {
+    const goals = [
+      goal("z-goal", 30, urlRule("keybr.com")),
+      goal("a-goal", 30, urlRule("keybr.com"))
+    ];
+    const result = calculateDailyProgress(goals, activity({
+      windowEvents: [event(0, 120, { app: "Google-chrome", title: "Practice - Google Chrome" })],
+      browserEvents: [event(
+        0,
+        30,
+        { url: "https://www.keybr.com/", title: "Practice" },
+        DATE,
+        "aw-watcher-web-chrome_fedora"
+      )]
+    }), DATE);
+
+    expect(result.find((item) => item.goalId === "a-goal")?.activeSeconds).toBe(120);
+    expect(result.find((item) => item.goalId === "z-goal")?.activeSeconds).toBe(0);
+  });
+
+  it("keeps AFK exclusion during inferred browser context", () => {
+    const typing = goal("typing", 30, urlRule("keybr.com"));
+    const result = calculateDailyProgress([typing], activity({
+      windowEvents: [event(0, 90, { app: "Google-chrome", title: "Practice - Google Chrome" })],
+      browserEvents: [event(
+        0,
+        30,
+        { url: "https://www.keybr.com/", title: "Practice" },
+        DATE,
+        "aw-watcher-web-chrome_fedora"
+      )],
+      afkEvents: [event(30, 60, { status: "afk" })]
+    }), DATE);
+
+    expect(result[0]?.activeSeconds).toBe(30);
+  });
+
+  it("keeps count-while-AFK behavior during inferred browser context", () => {
+    const typing = goal("typing", 30, urlRule("keybr.com", "primary", true));
+    const result = calculateDailyProgress([typing], activity({
+      windowEvents: [event(0, 90, { app: "Google-chrome", title: "Practice - Google Chrome" })],
+      browserEvents: [event(
+        0,
+        30,
+        { url: "https://www.keybr.com/", title: "Practice" },
+        DATE,
+        "aw-watcher-web-chrome_fedora"
+      )],
+      afkEvents: [event(30, 60, { status: "afk" })]
+    }), DATE);
+
+    expect(result[0]?.activeSeconds).toBe(90);
+  });
+
+  it("lets an inferred Primary refresh the existing continuation lease", () => {
+    const result = calculateDailyProgress([contextGoal()], activity({
+      windowEvents: [
+        event(0, 120, { app: "Firefox", title: "Stepik - Mozilla Firefox" }),
+        event(120, 600, { app: "Terminal", title: "Shell" })
+      ],
+      browserEvents: [event(
+        0,
+        30,
+        { url: "https://stepik.org/lesson/1", title: "Stepik" },
+        DATE,
+        "aw-watcher-web-firefox_fedora"
+      )]
+    }), DATE);
+
+    expect(result[0]?.activeSeconds).toBe(720);
+  });
+
+  it("never attributes inferred browser context before trackingStartedAt", () => {
+    const typing = {
+      ...goal("typing", 30, urlRule("keybr.com")),
+      trackingStartedAt: timestamp(60)
+    };
+    const result = calculateDailyProgress([typing], activity({
+      windowEvents: [event(0, 130, { app: "Google-chrome", title: "Practice - Google Chrome" })],
+      browserEvents: [event(
+        0,
+        30,
+        { url: "https://www.keybr.com/", title: "Practice" },
+        DATE,
+        "aw-watcher-web-chrome_fedora"
+      )]
+    }), DATE);
+
+    expect(result[0]?.activeSeconds).toBe(70);
+  });
+
   it("does not apply a stale browser URL after Terminal becomes active", () => {
     const urlGoal = goal("typing", 30, urlRule("keybr.com"));
     const result = calculateDailyProgress([urlGoal], activity({
