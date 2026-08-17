@@ -9,6 +9,7 @@ import {
   isGoalScheduled,
   isValidTargetMinutes,
   parseTargetOverride,
+  updateDefaultTarget,
   withGoalDayOverride
 } from "../src/schedule";
 
@@ -145,4 +146,65 @@ describe("override editing", () => {
     })).toThrow("Invalid target override");
     expect(() => withGoalDayOverride(original, "bad-date", { kind: "skip" })).toThrow("Invalid date");
   });
+});
+
+describe("default target editing", () => {
+  it("updates inherited targets while preserving custom weekday targets", () => {
+    const original = goal({ targetMinutes: 30, schedule: createDefaultSchedule(30) });
+    getGoalSchedule(original).tuesday.targetMinutes = 45;
+
+    const updated = updateDefaultTarget(original, 60);
+    const updatedSchedule = getGoalSchedule(updated);
+
+    expect(updated.targetMinutes).toBe(60);
+    expect(updatedSchedule.monday.targetMinutes).toBe(60);
+    expect(updatedSchedule.tuesday.targetMinutes).toBe(45);
+    expect(updatedSchedule.wednesday.targetMinutes).toBe(60);
+    expect(original.targetMinutes).toBe(30);
+    expect(getGoalSchedule(original).monday.targetMinutes).toBe(30);
+  });
+
+  it("updates inherited stored targets on rest days and preserves custom ones", () => {
+    const schedule = createDefaultSchedule(30);
+    schedule.saturday = { enabled: false, targetMinutes: 30 };
+    schedule.sunday = { enabled: false, targetMinutes: 45 };
+
+    const updated = updateDefaultTarget(goal({ targetMinutes: 30, schedule }), 60);
+    const updatedSchedule = getGoalSchedule(updated);
+
+    expect(updatedSchedule.saturday).toEqual({ enabled: false, targetMinutes: 60 });
+    expect(updatedSchedule.sunday).toEqual({ enabled: false, targetMinutes: 45 });
+  });
+
+  it("carries inherited targets through multiple changes without changing overrides", () => {
+    const original = goal({
+      targetMinutes: 30,
+      schedule: createDefaultSchedule(30),
+      overrides: {
+        "2026-08-20": { kind: "target", targetMinutes: 90 },
+        "2026-08-21": { kind: "skip" }
+      }
+    });
+    getGoalSchedule(original).tuesday.targetMinutes = 45;
+    const overrides = structuredClone(original.overrides);
+
+    const updated = updateDefaultTarget(updateDefaultTarget(original, 60), 90);
+    const updatedSchedule = getGoalSchedule(updated);
+
+    expect(updatedSchedule.monday.targetMinutes).toBe(90);
+    expect(updatedSchedule.tuesday.targetMinutes).toBe(45);
+    expect(updated.overrides).toEqual(overrides);
+    expect(original.overrides).toEqual(overrides);
+  });
+
+  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])(
+    "rejects invalid target %s without mutating the goal",
+    (targetMinutes) => {
+      const original = goal();
+      const snapshot = structuredClone(original);
+
+      expect(() => updateDefaultTarget(original, targetMinutes)).toThrow("Invalid default target");
+      expect(original).toEqual(snapshot);
+    }
+  );
 });

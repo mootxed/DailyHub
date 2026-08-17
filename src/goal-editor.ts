@@ -7,9 +7,10 @@ import {
   type DailyGoal,
   type GoalRule,
   type GoalRuleRole,
-  type GoalSchedule
+  type GoalSchedule,
+  type Weekday
 } from "./models";
-import { getGoalSchedule, isValidTargetMinutes } from "./schedule";
+import { getGoalSchedule, isValidTargetMinutes, updateDefaultTarget } from "./schedule";
 
 function copyGoal(goal: DailyGoal): DailyGoal {
   const schedule = getGoalSchedule(goal);
@@ -23,8 +24,9 @@ function copyGoal(goal: DailyGoal): DailyGoal {
 
 export class GoalEditorModal extends Modal {
   private readonly plugin: DailyHubPlugin;
-  private readonly draft: DailyGoal;
+  private draft: DailyGoal;
   private readonly onSaved: (() => void) | undefined;
+  private readonly scheduleTargetInputs = new Map<Weekday, HTMLInputElement>();
 
   constructor(plugin: DailyHubPlugin, goal?: DailyGoal, onSaved?: () => void) {
     super(plugin.app);
@@ -44,6 +46,7 @@ export class GoalEditorModal extends Modal {
 
   private render(): void {
     this.contentEl.empty();
+    this.scheduleTargetInputs.clear();
 
     new Setting(this.contentEl)
       .setName("Name")
@@ -53,13 +56,16 @@ export class GoalEditorModal extends Modal {
         .onChange((value) => { this.draft.name = value; }));
 
     new Setting(this.contentEl)
-      .setName("Daily minimum")
-      .setDesc("Minutes required to complete the goal. Time keeps accumulating afterward.")
+      .setName("Default target")
+      .setDesc("Default minutes for recurring schedule days. Custom weekday targets stay unchanged.")
       .addText((text) => {
         text.inputEl.type = "number";
         text.inputEl.min = "1";
         text.setValue(String(this.draft.targetMinutes)).onChange((value) => {
-          this.draft.targetMinutes = Number(value);
+          const targetMinutes = Number(value);
+          if (!isValidTargetMinutes(targetMinutes)) return;
+          this.draft = updateDefaultTarget(this.draft, targetMinutes);
+          this.refreshScheduleTargetInputs();
         });
       });
 
@@ -109,7 +115,7 @@ export class GoalEditorModal extends Modal {
     const section = this.contentEl.createDiv({ cls: "daily-hub-schedule-section" });
     section.createEl("h3", { text: "Weekly schedule" });
     section.createEl("p", {
-      text: "Active days create completion opportunities. Rest days do not affect streaks.",
+      text: "Changing the default updates days that still use the previous default. Rest days do not affect streaks.",
       cls: "daily-hub-muted"
     });
     const labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -126,23 +132,36 @@ export class GoalEditorModal extends Modal {
         value: String(day.targetMinutes),
         attr: { min: "1", "aria-label": `${labels[index] ?? weekday} target minutes` }
       });
+      this.scheduleTargetInputs.set(weekday, target);
       target.disabled = !day.enabled;
       const suffix = row.createEl("span", { text: day.enabled ? "min" : "Rest", cls: "daily-hub-muted" });
       checkbox.addEventListener("change", () => {
-        day.enabled = checkbox.checked;
-        target.disabled = !day.enabled;
-        suffix.setText(day.enabled ? "min" : "Rest");
+        const currentDay = getGoalSchedule(this.draft)[weekday];
+        currentDay.enabled = checkbox.checked;
+        target.disabled = !currentDay.enabled;
+        suffix.setText(currentDay.enabled ? "min" : "Rest");
       });
-      target.addEventListener("input", () => { day.targetMinutes = Number(target.value); });
+      target.addEventListener("input", () => {
+        getGoalSchedule(this.draft)[weekday].targetMinutes = Number(target.value);
+      });
     });
     const applyDefault = section.createEl("button", {
       text: "Apply default target to all days",
       cls: "daily-hub-schedule-apply"
     });
     applyDefault.addEventListener("click", () => {
-      for (const weekday of WEEKDAYS) schedule[weekday].targetMinutes = this.draft.targetMinutes;
+      const currentSchedule = getGoalSchedule(this.draft);
+      for (const weekday of WEEKDAYS) currentSchedule[weekday].targetMinutes = this.draft.targetMinutes;
       this.render();
     });
+  }
+
+  private refreshScheduleTargetInputs(): void {
+    const schedule = getGoalSchedule(this.draft);
+    for (const weekday of WEEKDAYS) {
+      const input = this.scheduleTargetInputs.get(weekday);
+      if (input !== undefined) input.value = String(schedule[weekday].targetMinutes);
+    }
   }
 
   private renderRuleSection(
@@ -235,7 +254,7 @@ export class GoalEditorModal extends Modal {
       return;
     }
     if (!Number.isFinite(this.draft.targetMinutes) || this.draft.targetMinutes <= 0) {
-      new Notice("Daily Hub: daily minimum must be greater than zero");
+      new Notice("Daily Hub: default target must be greater than zero");
       return;
     }
     const schedule = getGoalSchedule(this.draft);

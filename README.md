@@ -39,7 +39,7 @@ Sat      30 min
 Sun      Rest
 ```
 
-Use **Apply default target to all days** to initialize matching targets quickly, then turn individual days into rest days or adjust their minutes. A rest day is not an incomplete day: it creates no completion opportunity, contributes nothing to Remaining time, and does not break a streak.
+Changing the default target updates recurring days that still use the previous default while preserving custom weekday targets. Use **Apply default target to all days** to overwrite every stored weekday target explicitly, then turn individual days into rest days or adjust their minutes. A rest day is not an incomplete day: it creates no completion opportunity, contributes nothing to Remaining time, and does not break a streak.
 
 Use **Adjust this day** on a goal card to set a different target or skip that specific date. A date override has priority over the recurring weekday schedule. **Reset override** removes only that date's exception and restores the weekday schedule. A target override can make a normally resting day active; a skip override behaves like a rest day.
 
@@ -125,7 +125,7 @@ Create a goal from **Daily Hub → Add goal**:
 
 ```text
 Name: Typing practice
-Daily minimum: 30
+Default target: 30
 Rule type: URL
 Match: contains
 Value: keybr.com
@@ -139,7 +139,7 @@ Primary rules identify a goal on their own. Continuation rules count only after 
 
 ```text
 Name: DevOps
-Daily minimum: 90 min
+Default target: 90 min
 Primary: URL contains stepik.org
 Count while AFK: on
 Continuation: Application contains kitty

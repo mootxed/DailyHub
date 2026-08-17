@@ -41,6 +41,23 @@ export function getGoalSchedule(goal: Pick<DailyGoal, "targetMinutes" | "schedul
   return goal.schedule ?? createDefaultSchedule(goal.targetMinutes);
 }
 
+export function updateDefaultTarget(goal: DailyGoal, newTargetMinutes: number): DailyGoal {
+  if (!isValidTargetMinutes(newTargetMinutes)) throw new Error("Invalid default target");
+  const oldTargetMinutes = goal.targetMinutes;
+  const schedule = getGoalSchedule(goal);
+  return {
+    ...goal,
+    targetMinutes: newTargetMinutes,
+    schedule: Object.fromEntries(WEEKDAYS.map((weekday) => {
+      const day = schedule[weekday];
+      return [weekday, {
+        ...day,
+        targetMinutes: day.targetMinutes === oldTargetMinutes ? newTargetMinutes : day.targetMinutes
+      }];
+    })) as GoalSchedule
+  };
+}
+
 export function getEffectiveGoalDay(goal: DailyGoal, dateKey: string): EffectiveGoalDay {
   const scheduled = getGoalSchedule(goal)[getWeekday(dateKey)];
   const override = goal.overrides?.[dateKey];
