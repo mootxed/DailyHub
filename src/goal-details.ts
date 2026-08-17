@@ -1,0 +1,121 @@
+import { Modal, setIcon } from "obsidian";
+import { formatDuration, formatRemainingDuration, type GoalWeekStats } from "./dashboard";
+import { getLocalDateRange, isToday } from "./date";
+import type DailyHubPlugin from "./main";
+import type { DailyGoal } from "./models";
+
+type GoalStatsLoader = (force: boolean) => Promise<GoalWeekStats>;
+
+export class GoalDetailsModal extends Modal {
+  private stats: GoalWeekStats;
+
+  constructor(
+    plugin: DailyHubPlugin,
+    private readonly goal: DailyGoal,
+    private readonly selectedDateKey: string,
+    initialStats: GoalWeekStats,
+    private readonly loadStats: GoalStatsLoader
+  ) {
+    super(plugin.app);
+    this.stats = initialStats;
+  }
+
+  override onOpen(): void {
+    this.titleEl.setText(this.goal.name);
+    this.render();
+  }
+
+  override onClose(): void {
+    this.contentEl.empty();
+  }
+
+  private render(error?: string): void {
+    const container = this.contentEl;
+    container.empty();
+    container.addClass("daily-hub-goal-details");
+
+    const toolbar = container.createDiv({ cls: "daily-hub-details-toolbar" });
+    toolbar.createEl("span", { text: this.weekLabel(), cls: "daily-hub-muted" });
+    const refresh = toolbar.createEl("button", {
+      cls: "daily-hub-icon-button",
+      attr: { "aria-label": `Refresh ${this.goal.name} details`, title: "Refresh details" }
+    });
+    setIcon(refresh, "refresh-cw");
+    refresh.addEventListener("click", () => { void this.refresh(refresh); });
+
+    if (error !== undefined) {
+      container.createEl("p", { text: error, cls: "daily-hub-warning", attr: { role: "status" } });
+    }
+
+    const selected = container.createDiv({ cls: "daily-hub-details-selected" });
+    selected.createEl("h3", { text: isToday(this.selectedDateKey) ? "Today" : "Selected day" });
+    selected.createEl("div", {
+      text: new Intl.DateTimeFormat(undefined, { weekday: "long", month: "long", day: "numeric" })
+        .format(getLocalDateRange(this.selectedDateKey).start),
+      cls: "daily-hub-muted"
+    });
+    const selectedDay = this.stats.selectedDay;
+    if (selectedDay?.available !== true || selectedDay.activeSeconds === undefined) {
+      selected.createEl("strong", { text: "—", cls: "daily-hub-details-value" });
+    } else {
+      const minutes = Math.floor(selectedDay.activeSeconds / 60);
+      selected.createEl("strong", {
+        text: `${minutes} / ${this.goal.targetMinutes} min`,
+        cls: "daily-hub-details-value"
+      });
+      const remainingSeconds = Math.max(this.goal.targetMinutes * 60 - selectedDay.activeSeconds, 0);
+      selected.createEl("div", {
+        text: selectedDay.completed === true
+          ? "Goal complete ✓"
+          : `${formatRemainingDuration(remainingSeconds)} remaining`,
+        cls: selectedDay.completed === true ? "daily-hub-complete" : "daily-hub-muted"
+      });
+    }
+
+    const weekly = container.createDiv({ cls: "daily-hub-details-weekly" });
+    const total = weekly.createDiv();
+    total.createEl("span", { text: "This week", cls: "daily-hub-muted" });
+    total.createEl("strong", { text: formatDuration(this.stats.totalSeconds) });
+    const completion = weekly.createDiv();
+    completion.createEl("span", { text: "Completed on", cls: "daily-hub-muted" });
+    completion.createEl("strong", { text: `${this.stats.completedDays} / ${this.stats.trackedDays} elapsed days` });
+
+    const days = container.createDiv({ cls: "daily-hub-details-days" });
+    for (const day of this.stats.days) {
+      const row = days.createDiv({ cls: "daily-hub-details-day" });
+      row.createEl("span", {
+        text: new Intl.DateTimeFormat(undefined, { weekday: "short" })
+          .format(getLocalDateRange(day.dateKey).start)
+      });
+      row.createEl("strong", {
+        text: day.activeSeconds === undefined ? "—" : formatDuration(day.activeSeconds)
+      });
+      row.createEl("span", {
+        text: day.completed === true ? "✓" : "",
+        cls: "daily-hub-complete",
+        attr: { "aria-label": day.completed === true ? "Completed" : "" }
+      });
+    }
+  }
+
+  private async refresh(button: HTMLButtonElement): Promise<void> {
+    button.disabled = true;
+    button.addClass("is-loading");
+    try {
+      this.stats = await this.loadStats(true);
+      this.render();
+    } catch {
+      this.render("Could not refresh goal details");
+    }
+  }
+
+  private weekLabel(): string {
+    const first = this.stats.days[0];
+    const last = this.stats.days[this.stats.days.length - 1];
+    if (first === undefined || last === undefined) return "Selected week";
+    const formatter = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
+    return `${formatter.format(getLocalDateRange(first.dateKey).start)}–${formatter.format(
+      getLocalDateRange(last.dateKey).start
+    )}`;
+  }
+}

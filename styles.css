@@ -8,11 +8,17 @@
 .daily-hub-header,
 .daily-hub-goal-heading,
 .daily-hub-goal-summary,
+.daily-hub-goal-actions,
 .daily-hub-status,
 .daily-hub-header-actions,
 .daily-hub-status-actions,
 .daily-hub-modal-actions,
-.daily-hub-summary {
+.daily-hub-summary,
+.daily-hub-week-summary,
+.daily-hub-remaining-row,
+.daily-hub-remaining-total,
+.daily-hub-breakdown-heading,
+.daily-hub-details-toolbar {
   align-items: center;
   display: flex;
 }
@@ -36,6 +42,7 @@
 }
 
 .daily-hub-header-actions,
+.daily-hub-goal-actions,
 .daily-hub-status-actions,
 .daily-hub-modal-actions {
   gap: var(--size-4-2);
@@ -166,6 +173,39 @@
   margin: var(--size-4-4) 0;
 }
 
+.daily-hub-remaining {
+  border-bottom: 1px solid var(--background-modifier-border);
+  padding-bottom: var(--size-4-4);
+}
+
+.daily-hub-remaining .daily-hub-section-title {
+  margin-top: var(--size-4-4);
+}
+
+.daily-hub-remaining-list {
+  display: grid;
+  gap: var(--size-4-2);
+}
+
+.daily-hub-remaining-row,
+.daily-hub-remaining-total,
+.daily-hub-breakdown-heading,
+.daily-hub-details-toolbar {
+  justify-content: space-between;
+}
+
+.daily-hub-remaining-row strong,
+.daily-hub-remaining-total strong,
+.daily-hub-breakdown-heading span {
+  font-variant-numeric: tabular-nums;
+}
+
+.daily-hub-remaining-total {
+  border-top: 1px solid var(--background-modifier-border);
+  margin-top: var(--size-4-3);
+  padding-top: var(--size-4-3);
+}
+
 .daily-hub-summary-item {
   display: grid;
   gap: 2px;
@@ -235,6 +275,10 @@
   font-size: var(--font-ui-large);
 }
 
+.daily-hub-details-button {
+  font-size: var(--font-ui-small);
+}
+
 .daily-hub-progress {
   accent-color: var(--interactive-accent);
   display: block;
@@ -277,6 +321,12 @@
   grid-template-columns: repeat(7, minmax(0, 1fr));
 }
 
+.daily-hub-week-summary {
+  flex-wrap: wrap;
+  gap: var(--size-4-6);
+  margin-bottom: var(--size-4-4);
+}
+
 .daily-hub-week-day {
   align-items: center;
   display: flex;
@@ -291,6 +341,91 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.daily-hub-subsection-title {
+  font-size: var(--font-ui-medium);
+  margin: var(--size-4-5) 0 var(--size-4-3);
+}
+
+.daily-hub-goal-breakdown {
+  display: grid;
+  gap: var(--size-4-3);
+}
+
+.daily-hub-breakdown-item {
+  display: grid;
+  gap: var(--size-4-1);
+}
+
+.daily-hub-breakdown-heading span {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
+.daily-hub-breakdown-track {
+  background: var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  height: 6px;
+  overflow: hidden;
+}
+
+.daily-hub-breakdown-bar {
+  background: var(--interactive-accent);
+  border-radius: inherit;
+  height: 100%;
+  min-width: 0;
+}
+
+.daily-hub-goal-details {
+  display: grid;
+  gap: var(--size-4-4);
+}
+
+.daily-hub-details-selected,
+.daily-hub-details-weekly {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  padding: var(--size-4-4);
+}
+
+.daily-hub-details-selected h3 {
+  margin: 0 0 var(--size-4-1);
+}
+
+.daily-hub-details-value {
+  display: block;
+  font-size: var(--font-ui-large);
+  margin-top: var(--size-4-3);
+}
+
+.daily-hub-details-weekly {
+  display: grid;
+  gap: var(--size-4-3);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.daily-hub-details-weekly > div {
+  display: grid;
+  gap: var(--size-4-1);
+}
+
+.daily-hub-details-days {
+  display: grid;
+}
+
+.daily-hub-details-day {
+  align-items: center;
+  border-bottom: 1px solid var(--background-modifier-border);
+  display: grid;
+  gap: var(--size-4-2);
+  grid-template-columns: minmax(0, 1fr) auto 20px;
+  padding: var(--size-4-2) 0;
+}
+
+.daily-hub-details-day strong {
+  font-variant-numeric: tabular-nums;
 }
 
 .daily-hub-muted {
@@ -377,5 +512,18 @@
 
   .daily-hub-week-days {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .daily-hub-goal-heading {
+    align-items: flex-start;
+    gap: var(--size-4-2);
+  }
+
+  .daily-hub-week-summary {
+    gap: var(--size-4-4);
+  }
+
+  .daily-hub-details-weekly {
+    grid-template-columns: 1fr;
   }
 }

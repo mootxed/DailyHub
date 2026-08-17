@@ -16,6 +16,7 @@ interface ActivitySnapshotCacheOptions {
 export class ActivitySnapshotCache {
   private readonly cache = new Map<string, CacheEntry>();
   private readonly requests = new Map<string, Promise<ActivityWatchSnapshot>>();
+  private readonly generations = new Map<string, number>();
   private readonly now: () => number;
   private readonly todayTtlMs: number;
 
@@ -36,14 +37,17 @@ export class ActivitySnapshotCache {
     const pending = this.requests.get(key);
     if (pending !== undefined) return pending;
 
+    const generation = this.generations.get(key) ?? 0;
     const promise = this.load(activityWatchUrl, dateKey).then((snapshot) => {
-      const todayKey = toLocalDateKey(new Date(this.now()));
-      this.cache.set(key, {
-        snapshot,
-        expiresAt: dateKey === todayKey || snapshot.status.kind === "offline"
-          ? this.now() + this.todayTtlMs
-          : Number.POSITIVE_INFINITY
-      });
+      if ((this.generations.get(key) ?? 0) === generation) {
+        const todayKey = toLocalDateKey(new Date(this.now()));
+        this.cache.set(key, {
+          snapshot,
+          expiresAt: dateKey === todayKey || snapshot.status.kind === "offline"
+            ? this.now() + this.todayTtlMs
+            : Number.POSITIVE_INFINITY
+        });
+      }
       return snapshot;
     }).finally(() => {
       if (this.requests.get(key) === promise) this.requests.delete(key);
@@ -54,14 +58,21 @@ export class ActivitySnapshotCache {
 
   invalidate(activityWatchUrl: string, dateKeys?: Iterable<string>): void {
     if (dateKeys !== undefined) {
-      for (const dateKey of dateKeys) this.cache.delete(this.key(activityWatchUrl, dateKey));
+      for (const dateKey of dateKeys) this.invalidateKey(this.key(activityWatchUrl, dateKey));
       return;
     }
 
     const prefix = `${activityWatchUrl}\u0000`;
-    for (const key of this.cache.keys()) {
-      if (key.startsWith(prefix)) this.cache.delete(key);
+    const keys = new Set([...this.cache.keys(), ...this.requests.keys()]);
+    for (const key of keys) {
+      if (key.startsWith(prefix)) this.invalidateKey(key);
     }
+  }
+
+  private invalidateKey(key: string): void {
+    this.cache.delete(key);
+    this.requests.delete(key);
+    this.generations.set(key, (this.generations.get(key) ?? 0) + 1);
   }
 
   private key(activityWatchUrl: string, dateKey: string): string {

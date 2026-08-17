@@ -301,6 +301,33 @@ describe("daily progress", () => {
     expect(result[0]?.activeSeconds).toBe(900);
   });
 
+  it("counts Stepik then Konsole only until the original ten-minute lease expires", () => {
+    const devops = goal("devops", 90, [
+      urlRule("stepik.org"),
+      {
+        id: "continuation-konsole",
+        role: "continuation",
+        field: "application",
+        operator: "contains",
+        value: "konsole"
+      }
+    ]);
+    const result = calculateDailyProgress([devops], activity({
+      windowEvents: [
+        event(0, 300, { app: "Firefox", title: "Stepik" }),
+        event(300, 1_500, { app: "org.kde.konsole", title: "Shell" })
+      ],
+      browserEvents: [event(
+        0,
+        300,
+        { url: "https://stepik.org/lesson/1", title: "Stepik" },
+        DATE,
+        "aw-watcher-web-firefox_host"
+      )]
+    }), DATE);
+    expect(result[0]?.activeSeconds).toBe(900);
+  });
+
   it("does not let continuation preserve context across an interruption", () => {
     const result = calculateDailyProgress([contextGoal()], activity({
       windowEvents: [
@@ -441,6 +468,33 @@ describe("daily progress", () => {
       )]
     }), previousDate);
     expect(result[0]?.activeSeconds).toBe(900);
+  });
+
+  it("clips 23:58 to 00:02 and does not carry its context across midnight", () => {
+    const midnight = getLocalDateRange(DATE).end.getTime();
+    const devopsActivity = activity({
+      windowEvents: [
+        {
+          timestamp: new Date(midnight - 120_000).toISOString(),
+          duration: 120,
+          data: { app: "Firefox", title: "Stepik" }
+        },
+        {
+          timestamp: new Date(midnight).toISOString(),
+          duration: 120,
+          data: { app: "Terminal" }
+        }
+      ],
+      browserEvents: [{
+        timestamp: new Date(midnight - 120_000).toISOString(),
+        duration: 120,
+        data: { url: "https://stepik.org/lesson/1", title: "Stepik" },
+        sourceBucketId: "aw-watcher-web-firefox_host"
+      }]
+    });
+
+    expect(calculateDailyProgress([contextGoal()], devopsActivity, DATE)[0]?.activeSeconds).toBe(120);
+    expect(calculateDailyProgress([contextGoal()], devopsActivity, "2026-08-17")[0]?.activeSeconds).toBe(0);
   });
 
   it("does not count a default primary rule while AFK", () => {

@@ -68,6 +68,28 @@ describe("ActivityWatch snapshot cache", () => {
     expect(load).toHaveBeenCalledTimes(2);
   });
 
+  it("does not reuse or cache a pending request after manual invalidation", async () => {
+    const resolvers: ((value: ActivityWatchSnapshot) => void)[] = [];
+    const load = vi.fn(() => new Promise<ActivityWatchSnapshot>((resolve) => {
+      resolvers.push(resolve);
+    }));
+    const cache = new ActivitySnapshotCache(load);
+
+    const stale = cache.get("http://localhost:5600", "2026-08-16");
+    cache.invalidate("http://localhost:5600", ["2026-08-16"]);
+    const fresh = cache.get("http://localhost:5600", "2026-08-16");
+
+    expect(fresh).not.toBe(stale);
+    expect(load).toHaveBeenCalledTimes(2);
+    resolvers[0]?.(snapshot("stale"));
+    resolvers[1]?.(snapshot("fresh"));
+    await expect(stale).resolves.toMatchObject({ status: { message: "stale" } });
+    await expect(fresh).resolves.toMatchObject({ status: { message: "fresh" } });
+    await expect(cache.get("http://localhost:5600", "2026-08-16"))
+      .resolves.toMatchObject({ status: { message: "fresh" } });
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+
   it("separates dates and ActivityWatch URLs", async () => {
     const load = vi.fn((url: string, key: string) => Promise.resolve(snapshot(`${url}:${key}`)));
     const cache = new ActivitySnapshotCache(load);

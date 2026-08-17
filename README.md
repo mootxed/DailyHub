@@ -7,9 +7,11 @@ Daily Hub is a desktop [Obsidian](https://obsidian.md/) community plugin that tr
 ## Dashboard
 
 - A dedicated **Daily Hub** view with live progress bars, remaining time, and above-target totals.
+- A **Remaining today** summary with each unfinished goal and the combined time left.
 - A seven-day navigator with a persistent Today shortcut when another date is selected.
 - A daily summary with total studied time and enabled-goal completion count.
-- A clickable Monday–Sunday overview for the selected date's local week.
+- A clickable Monday–Sunday overview with weekly total, elapsed-day average, completion count, and per-goal breakdown.
+- Goal details for the selected week, including daily totals and completed-day count.
 - Unlimited daily goals with a minimum number of minutes.
 - Case-insensitive `contains` and `equals` primary/continuation rules for URL, application, and window title.
 - OR matching within each rule group and deterministic single-goal attribution if goals overlap.
@@ -50,12 +52,22 @@ Watcher dependencies are intentionally strict: application and window-title rule
 
 ```bash
 npm install
+```
+
+Copy `main.js`, `manifest.json`, and `styles.css` into `<vault>/.obsidian/plugins/daily-hub/`, then reload Obsidian. `npm run dev` starts an esbuild watcher.
+
+## Testing
+
+```bash
 npm test
+npm run test:coverage
 npm run lint
 npm run build
 ```
 
-Copy `main.js`, `manifest.json`, and `styles.css` into `<vault>/.obsidian/plugins/daily-hub/`, then reload Obsidian. `npm run dev` starts an esbuild watcher.
+## CI
+
+GitHub Actions runs the tests, coverage thresholds, lint, and production build for pushes and pull requests targeting `main`.
 
 ## Set up ActivityWatch
 

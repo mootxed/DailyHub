@@ -1,0 +1,42 @@
+import { defineConfig } from "vitest/config";
+
+export default defineConfig({
+  test: {
+    coverage: {
+      provider: "v8",
+      include: ["src/**/*.ts"],
+      exclude: ["main.js", "node_modules/**", "coverage/**", "dist/**", "build/**"],
+      reporter: ["text", "html", "lcov"],
+      thresholds: {
+        lines: 30,
+        statements: 30,
+        functions: 80,
+        branches: 80,
+        "src/dashboard.ts": {
+          lines: 95,
+          statements: 95,
+          functions: 95,
+          branches: 85
+        },
+        "src/progress.ts": {
+          lines: 95,
+          statements: 95,
+          functions: 95,
+          branches: 80
+        },
+        "src/activity-cache.ts": {
+          lines: 85,
+          statements: 85,
+          functions: 90,
+          branches: 85
+        },
+        "src/{activity-watch-buckets,data,date,matcher,models}.ts": {
+          lines: 75,
+          statements: 75,
+          functions: 70,
+          branches: 65
+        }
+      }
+    }
+  }
+});

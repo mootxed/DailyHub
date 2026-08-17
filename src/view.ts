@@ -1,5 +1,14 @@
 import { ItemView, setIcon, type WorkspaceLeaf } from "obsidian";
-import { formatDuration, summarizeDay, type DailySummary } from "./dashboard";
+import {
+  formatDuration,
+  formatRemainingDuration,
+  getRemainingGoals,
+  getTotalRemainingSeconds,
+  summarizeDay,
+  summarizeWeek,
+  type GoalWeekStats,
+  type WeeklyAnalytics
+} from "./dashboard";
 import {
   addLocalDays,
   getDateNavigator,
@@ -10,6 +19,7 @@ import {
   toLocalDateKey
 } from "./date";
 import { GoalEditorModal } from "./goal-editor";
+import { GoalDetailsModal } from "./goal-details";
 import type DailyHubPlugin from "./main";
 import type { ActivityWatchSnapshot, ActivityWatchStatus, DailyGoal, GoalProgress } from "./models";
 import { calculateDailyProgress } from "./progress";
@@ -28,7 +38,8 @@ const OFFLINE_STATUS: ActivityWatchStatus = {
 interface WeekDayData {
   key: string;
   date: Date;
-  summary: DailySummary | undefined;
+  future: boolean;
+  progress: GoalProgress[] | undefined;
 }
 
 export class DailyHubView extends ItemView {
@@ -101,25 +112,31 @@ export class DailyHubView extends ItemView {
       return {
         key,
         date,
-        summary: future
-          ? summarizeDay(this.plugin.data.goals, [])
-          : snapshot === undefined || snapshot.status.kind === "offline"
-            ? undefined
-            : summarizeDay(
-              this.plugin.data.goals,
-              calculateDailyProgress(this.plugin.data.goals, snapshot.activity, key)
-            )
+        future,
+        progress: future || snapshot === undefined || snapshot.status.kind === "offline"
+          ? undefined
+          : calculateDailyProgress(this.plugin.data.goals, snapshot.activity, key)
       };
     });
 
-    const status = snapshots.get(todayKey)?.status ?? selectedSnapshot?.status ?? OFFLINE_STATUS;
+    const weeklyAnalytics = summarizeWeek(
+      this.plugin.data.goals,
+      week.map((day) => ({ dateKey: day.key, future: day.future, progress: day.progress })),
+      this.selectedDateKey
+    );
+
+    const status = selectedFuture
+      ? snapshots.get(todayKey)?.status ?? OFFLINE_STATUS
+      : selectedSnapshot?.status ?? { ...OFFLINE_STATUS, message: "Selected day unavailable" };
     this.renderDashboard(
       getLocalDateRange(this.selectedDateKey).start,
       today,
       status,
       selectedProgress,
       week,
-      selectedFuture
+      weeklyAnalytics,
+      selectedFuture,
+      selectedSnapshot?.status.kind === "connected"
     );
     this.hasRendered = true;
 
@@ -155,7 +172,9 @@ export class DailyHubView extends ItemView {
     status: ActivityWatchStatus,
     progress: GoalProgress[],
     week: WeekDayData[],
-    future: boolean
+    weeklyAnalytics: WeeklyAnalytics,
+    future: boolean,
+    selectedAvailable: boolean
   ): void {
     const container = this.contentEl;
     container.empty();
@@ -192,16 +211,23 @@ export class DailyHubView extends ItemView {
     const daySummary = summarizeDay(this.plugin.data.goals, progress);
     const summary = container.createDiv({ cls: "daily-hub-summary", attr: { "aria-label": "Daily summary" } });
     const studied = summary.createDiv({ cls: "daily-hub-summary-item" });
-    studied.createEl("strong", { text: formatDuration(daySummary.totalActiveSeconds) });
+    studied.createEl("strong", {
+      text: selectedAvailable ? formatDuration(daySummary.totalActiveSeconds) : "—"
+    });
     studied.createEl("span", { text: "studied" });
     const completed = summary.createDiv({ cls: "daily-hub-summary-item" });
-    completed.createEl("strong", { text: `${daySummary.completedGoals} / ${daySummary.goalCount}` });
+    completed.createEl("strong", {
+      text: selectedAvailable ? `${daySummary.completedGoals} / ${daySummary.goalCount}` : "—"
+    });
     completed.createEl("span", { text: "goals completed" });
-    if (daySummary.goalCount > 0 && daySummary.completedGoals === daySummary.goalCount) {
+    if (selectedAvailable && daySummary.goalCount > 0 && daySummary.completedGoals === daySummary.goalCount) {
       container.createEl("div", { text: "All goals completed ✓", cls: "daily-hub-all-complete" });
     }
 
     this.renderStatus(container, status);
+    if (isToday(this.selectedDateKey, today)) {
+      this.renderRemainingToday(container, progress, selectedAvailable);
+    }
     container.createEl("h2", { text: "Goals", cls: "daily-hub-section-title" });
 
     const enabledGoals = this.plugin.data.goals.filter((goal) => goal.enabled);
@@ -214,16 +240,17 @@ export class DailyHubView extends ItemView {
     } else {
       const goals = container.createDiv({ cls: "daily-hub-goals" });
       const progressByGoal = new Map(progress.map((item) => [item.goalId, item]));
+      const weekByGoal = new Map(weeklyAnalytics.goals.map((item) => [item.goalId, item]));
       for (const goal of enabledGoals) {
         const goalProgress = progressByGoal.get(goal.id);
-        if (goalProgress !== undefined) this.renderGoal(goals, goal, goalProgress);
-      }
-      if (future && daySummary.totalActiveSeconds === 0) {
-        goals.createEl("p", { text: "No activity yet", cls: "daily-hub-muted daily-hub-no-activity" });
+        const goalWeek = weekByGoal.get(goal.id);
+        if (goalProgress !== undefined && goalWeek !== undefined) {
+          this.renderGoal(goals, goal, goalProgress, goalWeek, selectedAvailable, future);
+        }
       }
     }
 
-    this.renderWeek(container, week);
+    this.renderWeek(container, week, weeklyAnalytics);
   }
 
   private renderDateNavigator(container: HTMLElement, today: Date): void {
@@ -272,9 +299,58 @@ export class DailyHubView extends ItemView {
     void this.refresh();
   }
 
-  private renderWeek(container: HTMLElement, week: WeekDayData[]): void {
+  private renderRemainingToday(
+    container: HTMLElement,
+    progress: GoalProgress[],
+    selectedAvailable: boolean
+  ): void {
+    const section = container.createDiv({ cls: "daily-hub-remaining" });
+    section.createEl("h2", { text: "Remaining today", cls: "daily-hub-section-title" });
+    if (!selectedAvailable) {
+      section.createEl("p", { text: "Remaining time unavailable", cls: "daily-hub-muted" });
+      return;
+    }
+
+    const remaining = getRemainingGoals(this.plugin.data.goals, progress);
+    if (remaining.length === 0) {
+      section.createEl("p", { text: "Nothing left for today ✓", cls: "daily-hub-all-complete" });
+      return;
+    }
+
+    const list = section.createDiv({ cls: "daily-hub-remaining-list" });
+    for (const item of remaining) {
+      const row = list.createDiv({ cls: "daily-hub-remaining-row" });
+      row.createEl("span", { text: item.name });
+      row.createEl("strong", { text: formatRemainingDuration(item.remainingSeconds) });
+    }
+    const total = section.createDiv({ cls: "daily-hub-remaining-total" });
+    total.createEl("span", { text: "Total" });
+    total.createEl("strong", {
+      text: formatRemainingDuration(getTotalRemainingSeconds(this.plugin.data.goals, progress))
+    });
+  }
+
+  private renderWeek(
+    container: HTMLElement,
+    week: WeekDayData[],
+    analytics: WeeklyAnalytics
+  ): void {
     const section = container.createDiv({ cls: "daily-hub-week" });
     section.createEl("h2", { text: "This week", cls: "daily-hub-section-title" });
+
+    const summary = section.createDiv({ cls: "daily-hub-week-summary", attr: { "aria-label": "Weekly summary" } });
+    const total = summary.createDiv({ cls: "daily-hub-summary-item" });
+    total.createEl("strong", { text: formatDuration(analytics.totalActiveSeconds) });
+    total.createEl("span", { text: analytics.unavailableDays > 0 ? "total (partial)" : "total" });
+    const average = summary.createDiv({ cls: "daily-hub-summary-item" });
+    average.createEl("strong", {
+      text: analytics.dailyAverageSeconds === undefined ? "—" : formatDuration(analytics.dailyAverageSeconds)
+    });
+    average.createEl("span", { text: "daily average" });
+    const completed = summary.createDiv({ cls: "daily-hub-summary-item" });
+    completed.createEl("strong", { text: `${analytics.completedGoals} / ${analytics.goalOpportunities}` });
+    completed.createEl("span", { text: "completed goals" });
+
     const days = section.createDiv({ cls: "daily-hub-week-days" });
 
     for (const day of week) {
@@ -291,20 +367,41 @@ export class DailyHubView extends ItemView {
         cls: "daily-hub-weekday"
       });
       button.createEl("strong", { text: String(day.date.getDate()) });
-      if (day.summary === undefined) {
+      const daySummary = day.progress === undefined
+        ? undefined
+        : summarizeDay(this.plugin.data.goals, day.progress);
+      if (daySummary === undefined) {
         button.createEl("span", { text: "—", cls: "daily-hub-week-stat" });
-        button.createEl("span", { text: "—", cls: "daily-hub-week-stat daily-hub-muted" });
       } else {
         button.createEl("span", {
-          text: formatDuration(day.summary.totalActiveSeconds),
+          text: formatDuration(daySummary.totalActiveSeconds),
           cls: "daily-hub-week-stat"
         });
         button.createEl("span", {
-          text: `${day.summary.completedGoals}/${day.summary.goalCount}`,
+          text: `${daySummary.completedGoals}/${daySummary.goalCount}`,
           cls: "daily-hub-week-stat daily-hub-muted"
         });
       }
       button.addEventListener("click", () => this.selectDate(day.key));
+    }
+
+    this.renderGoalBreakdown(section, analytics.goals);
+  }
+
+  private renderGoalBreakdown(container: HTMLElement, goals: GoalWeekStats[]): void {
+    container.createEl("h3", { text: "Goal breakdown", cls: "daily-hub-subsection-title" });
+    const breakdown = container.createDiv({ cls: "daily-hub-goal-breakdown" });
+    const maximum = Math.max(...goals.map((goal) => goal.totalSeconds), 1);
+    for (const goal of goals) {
+      const item = breakdown.createDiv({ cls: "daily-hub-breakdown-item" });
+      const heading = item.createDiv({ cls: "daily-hub-breakdown-heading" });
+      heading.createEl("strong", { text: goal.goalName });
+      heading.createEl("span", { text: formatDuration(goal.totalSeconds) });
+      const track = item.createDiv({ cls: "daily-hub-breakdown-track" });
+      track.createDiv({
+        cls: "daily-hub-breakdown-bar",
+        attr: { style: `width: ${(goal.totalSeconds / maximum) * 100}%` }
+      });
     }
   }
 
@@ -357,16 +454,43 @@ export class DailyHubView extends ItemView {
     });
   }
 
-  private renderGoal(container: HTMLElement, goal: DailyGoal, progress: GoalProgress): void {
+  private renderGoal(
+    container: HTMLElement,
+    goal: DailyGoal,
+    progress: GoalProgress,
+    week: GoalWeekStats,
+    selectedAvailable: boolean,
+    future: boolean
+  ): void {
     const card = container.createDiv({ cls: "daily-hub-goal" });
     const heading = card.createDiv({ cls: "daily-hub-goal-heading" });
     heading.createEl("h3", { text: goal.name });
-    const edit = heading.createEl("button", {
+    const actions = heading.createDiv({ cls: "daily-hub-goal-actions" });
+    const details = actions.createEl("button", { text: "Details", cls: "daily-hub-details-button" });
+    details.addEventListener("click", () => {
+      const selectedDateKey = this.selectedDateKey;
+      new GoalDetailsModal(
+        this.plugin,
+        goal,
+        selectedDateKey,
+        week,
+        (force) => this.loadGoalWeekStats(goal, selectedDateKey, force)
+      ).open();
+    });
+    const edit = actions.createEl("button", {
       cls: "daily-hub-icon-button",
       attr: { "aria-label": `Edit ${goal.name}`, title: `Edit ${goal.name}` }
     });
     setIcon(edit, "pencil");
     edit.addEventListener("click", () => new GoalEditorModal(this.plugin, goal).open());
+
+    if (!selectedAvailable) {
+      card.createEl("div", {
+        text: future ? "— Future day" : "— Activity unavailable",
+        cls: "daily-hub-muted daily-hub-no-activity"
+      });
+      return;
+    }
 
     const bar = card.createEl("progress", {
       cls: "daily-hub-progress",
@@ -391,5 +515,37 @@ export class DailyHubView extends ItemView {
       const remaining = Math.max(0, Math.ceil(goal.targetMinutes - progress.actualMinutes));
       card.createEl("div", { text: `${remaining} min remaining`, cls: "daily-hub-muted" });
     }
+  }
+
+  private async loadGoalWeekStats(
+    goal: DailyGoal,
+    selectedDateKey: string,
+    force: boolean
+  ): Promise<GoalWeekStats> {
+    const today = new Date();
+    const weekDates = getLocalWeek(selectedDateKey);
+    const keys = weekDates.map(toLocalDateKey).filter((key) => !isFutureDate(key, today));
+    if (force) this.plugin.invalidateActivitySnapshots(keys);
+    const results = await Promise.allSettled(keys.map((key) => this.plugin.getActivitySnapshot(key)));
+    const snapshots = new Map<string, ActivityWatchSnapshot>();
+    results.forEach((result, index) => {
+      const key = keys[index];
+      if (key !== undefined && result.status === "fulfilled") snapshots.set(key, result.value);
+    });
+    const days = weekDates.map((date) => {
+      const dateKey = toLocalDateKey(date);
+      const future = isFutureDate(dateKey, today);
+      const snapshot = snapshots.get(dateKey);
+      return {
+        dateKey,
+        future,
+        progress: future || snapshot === undefined || snapshot.status.kind === "offline"
+          ? undefined
+          : calculateDailyProgress([goal], snapshot.activity, dateKey)
+      };
+    });
+    const stats = summarizeWeek([goal], days, selectedDateKey).goals[0];
+    if (stats === undefined) throw new Error("Goal details are unavailable");
+    return stats;
   }
 }
