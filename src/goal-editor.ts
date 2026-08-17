@@ -12,6 +12,7 @@ import {
 } from "./models";
 import {
   applyDefaultTargetToAllDays,
+  getCustomTargetWeekdays,
   getGoalSchedule,
   isValidTargetMinutes,
   parseDefaultTargetInput,
@@ -33,7 +34,7 @@ export class GoalEditorModal extends Modal {
   private draft: DailyGoal;
   private readonly onSaved: (() => void) | undefined;
   private readonly scheduleTargetInputs = new Map<Weekday, HTMLInputElement>();
-  private readonly explicitlyEditedWeekdays = new Set<Weekday>();
+  private readonly protectedWeekdays: Set<Weekday>;
   private defaultTargetValue: string;
 
   constructor(plugin: DailyHubPlugin, goal?: DailyGoal, onSaved?: () => void) {
@@ -42,6 +43,7 @@ export class GoalEditorModal extends Modal {
     this.draft = goal === undefined ? createEmptyGoal() : copyGoal(goal);
     this.onSaved = onSaved;
     this.defaultTargetValue = String(this.draft.targetMinutes);
+    this.protectedWeekdays = getCustomTargetWeekdays(this.draft);
   }
 
   override onOpen(): void {
@@ -74,7 +76,7 @@ export class GoalEditorModal extends Modal {
           this.defaultTargetValue = value;
           const targetMinutes = parseDefaultTargetInput(value);
           if (targetMinutes === undefined) return;
-          this.draft = updateDefaultTarget(this.draft, targetMinutes, this.explicitlyEditedWeekdays);
+          this.draft = updateDefaultTarget(this.draft, targetMinutes, this.protectedWeekdays);
           this.refreshScheduleTargetInputs();
         });
       });
@@ -152,7 +154,7 @@ export class GoalEditorModal extends Modal {
         suffix.setText(currentDay.enabled ? "min" : "Rest");
       });
       target.addEventListener("input", () => {
-        this.explicitlyEditedWeekdays.add(weekday);
+        this.protectedWeekdays.add(weekday);
         getGoalSchedule(this.draft)[weekday].targetMinutes = Number(target.value);
       });
     });
@@ -162,7 +164,7 @@ export class GoalEditorModal extends Modal {
     });
     applyDefault.addEventListener("click", () => {
       this.draft = applyDefaultTargetToAllDays(this.draft);
-      this.explicitlyEditedWeekdays.clear();
+      this.protectedWeekdays.clear();
       this.render();
     });
   }

@@ -46,6 +46,13 @@ export function getGoalSchedule(goal: Pick<DailyGoal, "targetMinutes" | "schedul
   return goal.schedule ?? createDefaultSchedule(goal.targetMinutes);
 }
 
+export function getCustomTargetWeekdays(
+  goal: Pick<DailyGoal, "targetMinutes" | "schedule">
+): Set<Weekday> {
+  const schedule = getGoalSchedule(goal);
+  return new Set(WEEKDAYS.filter((weekday) => schedule[weekday].targetMinutes !== goal.targetMinutes));
+}
+
 export function updateDefaultTarget(
   goal: DailyGoal,
   newTargetMinutes: number,

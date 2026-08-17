@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { createDefaultSchedule, type DailyGoal, type GoalProgress } from "../src/models";
+import { createDefaultSchedule, createEmptyGoal, type DailyGoal, type GoalProgress } from "../src/models";
 import {
   applyDefaultTargetToAllDays,
   applyScheduleToProgress,
   getEffectiveGoalDay,
   getEffectiveTargetMinutes,
+  getCustomTargetWeekdays,
   getGoalSchedule,
   getWeekday,
   isGoalScheduled,
@@ -175,6 +176,31 @@ describe("default target editing", () => {
     expect(getGoalSchedule(original).monday.targetMinutes).toBe(30);
   });
 
+  it("infers saved custom targets without treating inherited rest days as custom", () => {
+    const schedule = createDefaultSchedule(30);
+    schedule.tuesday.targetMinutes = 45;
+    schedule.thursday.targetMinutes = 60;
+    schedule.saturday = { enabled: false, targetMinutes: 30 };
+    schedule.sunday = { enabled: false, targetMinutes: 45 };
+    const original = goal({ targetMinutes: 30, schedule });
+    const snapshot = structuredClone(original);
+
+    expect(getCustomTargetWeekdays(original)).toEqual(new Set(["tuesday", "thursday", "sunday"]));
+    expect(original).toEqual(snapshot);
+  });
+
+  it("finds no saved customs for inherited or legacy schedules", () => {
+    expect(getCustomTargetWeekdays(createEmptyGoal())).toEqual(new Set());
+    expect(getCustomTargetWeekdays(goal({
+      targetMinutes: 30,
+      schedule: createDefaultSchedule(30)
+    }))).toEqual(new Set());
+    expect(getCustomTargetWeekdays(goal({
+      targetMinutes: 30,
+      schedule: undefined
+    }))).toEqual(new Set());
+  });
+
   it("updates inherited stored targets on rest days and preserves custom ones", () => {
     const schedule = createDefaultSchedule(30);
     schedule.saturday = { enabled: false, targetMinutes: 30 };
@@ -222,6 +248,28 @@ describe("default target editing", () => {
     expect(getGoalSchedule(ninety).saturday).toEqual({ enabled: false, targetMinutes: 60 });
   });
 
+  it("preserves saved custom targets through repeated default collisions", () => {
+    const schedule = createDefaultSchedule(30);
+    schedule.tuesday.targetMinutes = 45;
+    schedule.thursday.targetMinutes = 60;
+    schedule.sunday = { enabled: false, targetMinutes: 45 };
+    let updated = goal({ targetMinutes: 30, schedule });
+    const protectedWeekdays = getCustomTargetWeekdays(updated);
+
+    updated = updateDefaultTarget(updated, 45, protectedWeekdays);
+    expect(getGoalSchedule(updated).tuesday.targetMinutes).toBe(45);
+    updated = updateDefaultTarget(updated, 60, protectedWeekdays);
+    expect(getGoalSchedule(updated).tuesday.targetMinutes).toBe(45);
+    updated = updateDefaultTarget(updated, 90, protectedWeekdays);
+
+    const updatedSchedule = getGoalSchedule(updated);
+    expect(updatedSchedule.monday.targetMinutes).toBe(90);
+    expect(updatedSchedule.wednesday.targetMinutes).toBe(90);
+    expect(updatedSchedule.tuesday.targetMinutes).toBe(45);
+    expect(updatedSchedule.thursday.targetMinutes).toBe(60);
+    expect(updatedSchedule.sunday).toEqual({ enabled: false, targetMinutes: 45 });
+  });
+
   it("propagates from the last valid default after invalid raw input", () => {
     const original = goal({ targetMinutes: 30, schedule: createDefaultSchedule(30) });
 
@@ -240,11 +288,11 @@ describe("default target editing", () => {
   });
 
   it("resets custom targets to the default and makes them inherited again", () => {
-    const protectedWeekdays = new Set(["tuesday"] as const);
     const schedule = createDefaultSchedule(30);
     schedule.tuesday.targetMinutes = 45;
     schedule.saturday.enabled = false;
     const original = goal({ targetMinutes: 30, schedule });
+    const protectedWeekdays = getCustomTargetWeekdays(original);
 
     const reset = applyDefaultTargetToAllDays(original);
     protectedWeekdays.clear();
