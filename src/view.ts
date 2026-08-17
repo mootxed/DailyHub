@@ -28,6 +28,7 @@ import {
 import { DayOverrideModal } from "./day-override";
 import { GoalEditorModal } from "./goal-editor";
 import { GoalDetailsModal, type GoalDetailsStats } from "./goal-details";
+import { hasGoalTrackingStartedByDate } from "./goal-lifecycle";
 import { LongTermActivityState } from "./long-term-state";
 import type DailyHubPlugin from "./main";
 import type { ActivityWatchSnapshot, ActivityWatchStatus, DailyGoal, GoalProgress } from "./models";
@@ -252,7 +253,10 @@ export class DailyHubView extends ItemView {
     if (selectedAvailable && daySummary.goalCount > 0 && daySummary.completedGoals === daySummary.goalCount) {
       container.createEl("div", { text: "All goals completed ✓", cls: "daily-hub-all-complete" });
     } else if (daySummary.goalCount === 0) {
-      container.createEl("div", { text: "No goals scheduled", cls: "daily-hub-rest-day" });
+      container.createEl("div", {
+        text: daySummary.trackedGoalCount === 0 ? "Not tracked yet" : "No goals scheduled",
+        cls: "daily-hub-rest-day"
+      });
     }
 
     this.renderStatus(container, status);
@@ -349,7 +353,13 @@ export class DailyHubView extends ItemView {
 
     const plan = getDayPlan(this.plugin.data.goals, progress, this.selectedDateKey);
     if (plan.length === 0) {
-      section.createEl("p", { text: "No goals scheduled", cls: "daily-hub-rest-day" });
+      const hasTrackedGoals = this.plugin.data.goals.some((goal) => (
+        goal.enabled && hasGoalTrackingStartedByDate(goal, this.selectedDateKey)
+      ));
+      section.createEl("p", {
+        text: hasTrackedGoals ? "No goals scheduled" : "Not tracked yet",
+        cls: "daily-hub-rest-day"
+      });
       return;
     }
 
@@ -439,7 +449,9 @@ export class DailyHubView extends ItemView {
           cls: "daily-hub-week-stat"
         });
         button.createEl("span", {
-          text: daySummary.goalCount === 0
+          text: daySummary.trackedGoalCount === 0
+            ? "Not tracked"
+            : daySummary.goalCount === 0
             ? "Rest"
             : `${daySummary.completedGoals}/${daySummary.goalCount}`,
           cls: "daily-hub-week-stat daily-hub-muted"
@@ -517,26 +529,30 @@ export class DailyHubView extends ItemView {
       const date = getLocalDateRange(day.dateKey).start;
       const dateLabel = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date);
       const selected = day.dateKey === this.selectedDateKey;
-      const restDay = day.goalCount === 0;
+      const notTracked = day.trackedGoalCount === 0;
+      const restDay = !notTracked && day.goalCount === 0;
+      const neutral = notTracked || restDay;
       const ratio = day.progressRatio;
       const available = day.available && ratio !== undefined;
-      const details = restDay
+      const details = notTracked
+        ? "No goals existed yet"
+        : restDay
         ? "No goals scheduled"
         : available
         ? `${formatDuration(day.totalSeconds ?? 0)} studied, ${day.completedGoals ?? 0} of ${day.goalCount} goals completed, ${Math.round(ratio * 100)}% planned progress`
         : "Activity data unavailable";
       const label = `${dateLabel}: ${details}`;
       const button = heatmap.createEl("button", {
-        text: available ? "" : restDay ? "·" : "—",
-        cls: `daily-hub-heatmap-cell${available ? ` is-level-${getHeatmapLevel(ratio)}` : restDay ? " is-rest" : " is-unavailable"}${selected ? " is-selected" : ""}`,
+        text: available ? "" : neutral ? "·" : "—",
+        cls: `daily-hub-heatmap-cell${available ? ` is-level-${getHeatmapLevel(ratio)}` : neutral ? " is-rest" : " is-unavailable"}${selected ? " is-selected" : ""}`,
         attr: {
           "aria-label": label,
           title: label,
           ...(selected ? { "aria-current": "date" } : {})
         }
       });
-      button.disabled = !available && !restDay;
-      if (available || restDay) button.addEventListener("click", () => this.selectDate(day.dateKey));
+      button.disabled = !available && !neutral;
+      if (available || neutral) button.addEventListener("click", () => this.selectDate(day.dateKey));
     }
   }
 
@@ -718,6 +734,14 @@ export class DailyHubView extends ItemView {
     adjust.addEventListener("click", () => {
       new DayOverrideModal(this.plugin, goal, this.selectedDateKey).open();
     });
+
+    if (!progress.trackingStarted) {
+      card.createEl("div", {
+        text: "Not tracked yet",
+        cls: "daily-hub-rest-day daily-hub-no-activity"
+      });
+      return;
+    }
 
     if (!progress.scheduled) {
       card.createEl("div", {

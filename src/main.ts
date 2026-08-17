@@ -4,6 +4,7 @@ import { ActivityWatchClient } from "./activity-watch";
 import { normalizeData, requiresDataMigration } from "./data";
 import { toLocalDateKey } from "./date";
 import { GoalEditorModal } from "./goal-editor";
+import { startGoalTracking } from "./goal-lifecycle";
 import {
   DEFAULT_DATA,
   updateGoalEnabled,
@@ -62,7 +63,7 @@ export default class DailyHubPlugin extends Plugin {
 
   async upsertGoal(goal: DailyGoal): Promise<void> {
     const index = this.data.goals.findIndex((candidate) => candidate.id === goal.id);
-    if (index === -1) this.data.goals.push(goal);
+    if (index === -1) this.data.goals.push(startGoalTracking(goal, new Date()));
     else this.data.goals[index] = goal;
     await this.savePluginData();
     await this.refreshViews();

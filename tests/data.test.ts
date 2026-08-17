@@ -67,6 +67,36 @@ describe("plugin data validation", () => {
     }]);
   });
 
+  it("migrates v5 goals as legacy and normalizes tracking timestamps", () => {
+    const baseGoal = {
+      id: "tracked",
+      name: "Tracked",
+      targetMinutes: 30,
+      enabled: true,
+      rules: [{ id: "primary", role: "primary", field: "url", operator: "contains", value: "example.com" }]
+    };
+    const legacy = normalizeData({ schemaVersion: 5, settings: {}, goals: [baseGoal] });
+    expect(requiresDataMigration({ schemaVersion: 5, settings: {}, goals: [baseGoal] })).toBe(true);
+    expect(legacy.schemaVersion).toBe(6);
+    expect(legacy.goals[0]).not.toHaveProperty("trackingStartedAt");
+
+    const valid = normalizeData({
+      schemaVersion: DATA_SCHEMA_VERSION,
+      settings: {},
+      goals: [{ ...baseGoal, trackingStartedAt: "2026-08-17T11:40:12.123Z" }]
+    });
+    expect(valid.goals[0]?.trackingStartedAt).toBe("2026-08-17T11:40:12.123Z");
+
+    for (const trackingStartedAt of ["banana", ""]) {
+      const invalid = normalizeData({
+        schemaVersion: DATA_SCHEMA_VERSION,
+        settings: {},
+        goals: [{ ...baseGoal, trackingStartedAt }]
+      });
+      expect(invalid.goals[0]).not.toHaveProperty("trackingStartedAt");
+    }
+  });
+
   it("keeps primary and continuation rules while normalizing their AFK fields", () => {
     const data = normalizeData({
       schemaVersion: DATA_SCHEMA_VERSION,

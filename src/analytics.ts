@@ -7,6 +7,7 @@ export interface DayAnalytics {
   available: boolean;
   totalSeconds: number | undefined;
   completedGoals: number | undefined;
+  trackedGoalCount: number;
   goalCount: number;
   progressRatio: number | undefined;
 }
@@ -44,13 +45,16 @@ interface GoalDay {
 }
 
 function dayAnalytics(day: DayProgressResult, goals: DailyGoal[]): DayAnalytics {
-  const scheduledGoals = goals.filter((goal) => getEffectiveGoalDay(goal, day.dateKey).scheduled).length;
+  const effectiveGoals = goals.map((goal) => getEffectiveGoalDay(goal, day.dateKey));
+  const trackedGoalCount = effectiveGoals.filter((goal) => goal.trackingStarted).length;
+  const scheduledGoals = effectiveGoals.filter((goal) => goal.scheduled).length;
   if (day.future || day.progress === undefined) {
     return {
       dateKey: day.dateKey,
       available: false,
       totalSeconds: undefined,
       completedGoals: undefined,
+      trackedGoalCount,
       goalCount: scheduledGoals,
       progressRatio: undefined
     };
@@ -65,6 +69,7 @@ function dayAnalytics(day: DayProgressResult, goals: DailyGoal[]): DayAnalytics 
     available: true,
     totalSeconds,
     completedGoals,
+    trackedGoalCount: planned.filter((item) => item.trackingStarted).length,
     goalCount: scheduled.length,
     progressRatio: scheduled.length === 0
       ? undefined
@@ -79,7 +84,7 @@ function goalDays(goal: DailyGoal, days: DayProgressResult[]): GoalDay[] {
   return days.map((day) => {
     const effective = getEffectiveGoalDay(goal, day.dateKey);
     const raw = day.progress?.find((item) => item.goalId === goal.id);
-    const available = !day.future && day.progress !== undefined;
+    const available = effective.trackingStarted && !day.future && day.progress !== undefined;
     const activeSeconds = available ? raw?.activeSeconds ?? 0 : 0;
     return {
       scheduled: effective.scheduled,

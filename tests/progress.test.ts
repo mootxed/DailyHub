@@ -630,4 +630,68 @@ describe("daily progress", () => {
     expect(result.find((item) => item.goalId === "a-ineligible")?.activeSeconds).toBe(0);
     expect(result.find((item) => item.goalId === "z-eligible")?.activeSeconds).toBe(600);
   });
+
+  it("clips a matching event at the exact tracking start", () => {
+    const tracked = {
+      ...goal("typing", 30, appRule("kitty")),
+      trackingStartedAt: timestamp(300)
+    };
+    const result = calculateDailyProgress([tracked], activity({
+      windowEvents: [event(0, 600, { app: "kitty" })]
+    }), DATE);
+
+    expect(result[0]?.activeSeconds).toBe(300);
+  });
+
+  it("keeps legacy goals historically active", () => {
+    const result = calculateDailyProgress([goal("typing", 30, appRule("kitty"))], activity({
+      windowEvents: [event(0, 600, { app: "kitty" })]
+    }), DATE);
+
+    expect(result[0]?.activeSeconds).toBe(600);
+  });
+
+  it("does not let a new deterministic winner steal pre-creation overlap", () => {
+    const oldGoal = goal("z-old", 30, appRule("kitty"));
+    const newGoal = {
+      ...goal("a-new", 30, appRule("kitty")),
+      trackingStartedAt: timestamp(600)
+    };
+    const result = calculateDailyProgress([oldGoal, newGoal], activity({
+      windowEvents: [event(0, 1_200, { app: "kitty" })]
+    }), DATE);
+
+    expect(result.find((item) => item.goalId === "z-old")?.activeSeconds).toBe(600);
+    expect(result.find((item) => item.goalId === "a-new")?.activeSeconds).toBe(600);
+  });
+
+  it("does not create continuation context from a pre-start Primary", () => {
+    const tracked = {
+      ...goal("study", 30, [appRule("Primary"), appRule("Continuation", "continuation")]),
+      trackingStartedAt: timestamp(300)
+    };
+    const result = calculateDailyProgress([tracked], activity({
+      windowEvents: [
+        event(0, 240, { app: "Primary" }),
+        event(360, 240, { app: "Continuation" })
+      ]
+    }), DATE);
+
+    expect(result[0]?.activeSeconds).toBe(0);
+  });
+
+  it("lets a Primary spanning creation establish post-start context", () => {
+    const tracked = {
+      ...goal("study", 30, [appRule("Primary"), appRule("Continuation", "continuation")]),
+      trackingStartedAt: timestamp(300)
+    };
+    const result = calculateDailyProgress([tracked], activity({
+      windowEvents: [
+        event(240, 180, { app: "Primary" }),
+        event(420, 120, { app: "Continuation" })
+      ]
+    }), DATE);
+
+    expect(result[0]?.activeSeconds).toBe(240);
+  });
 });

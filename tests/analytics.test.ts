@@ -71,6 +71,7 @@ describe("30-day range analytics", () => {
       available: false,
       totalSeconds: undefined,
       completedGoals: undefined,
+      trackedGoalCount: 2,
       goalCount: 2,
       progressRatio: undefined
     });
@@ -172,6 +173,7 @@ describe("30-day range analytics", () => {
       available: true,
       totalSeconds: 1_080,
       completedGoals: 0,
+      trackedGoalCount: 2,
       goalCount: 0,
       progressRatio: undefined
     });
@@ -196,6 +198,36 @@ describe("30-day range analytics", () => {
     }]);
     expect(mixed.days[0]?.progressRatio).toBe(0.75);
     expect(mixed.days[0]?.goalCount).toBe(2);
+  });
+
+  it("excludes pre-start dates from range opportunities, streaks, and heatmap ratios", () => {
+    const trackingStartedAt = new Date(2026, 7, 19, 12).toISOString();
+    const trackedGoal = { ...devopsGoal, trackingStartedAt };
+    const analytics = calculateRangeAnalytics([trackedGoal], [
+      { dateKey: "2026-08-17", future: false, progress: undefined },
+      day("2026-08-18", 3_600, 0),
+      day("2026-08-19", 3_600, 0)
+    ]);
+
+    expect(analytics).toMatchObject({
+      totalSeconds: 3_600,
+      completedGoals: 1,
+      goalOpportunities: 1
+    });
+    expect(analytics.goals[0]).toMatchObject({
+      completedDays: 1,
+      availableDays: 1,
+      currentStreak: 1,
+      bestStreak: 1,
+      streakMayBeIncomplete: false
+    });
+    expect(analytics.days[0]).toMatchObject({ trackedGoalCount: 0, goalCount: 0 });
+    expect(analytics.days[1]).toMatchObject({ trackedGoalCount: 0, goalCount: 0, totalSeconds: 0 });
+    expect(analytics.days[2]).toMatchObject({ trackedGoalCount: 1, goalCount: 1 });
+
+    const newGoal = { ...typingGoal, trackingStartedAt };
+    const mixed = calculateRangeAnalytics([devopsGoal, newGoal], [day("2026-08-18", 1_800, 1_800)]);
+    expect(mixed.days[0]).toMatchObject({ trackedGoalCount: 1, goalCount: 1, progressRatio: 0.5 });
   });
 
   it("keeps streaks continuous across rest days and ignores unavailable rest data", () => {

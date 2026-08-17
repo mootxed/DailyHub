@@ -1,4 +1,5 @@
 import { getLocalDateRange } from "./date";
+import { hasGoalTrackingStartedByDate } from "./goal-lifecycle";
 import {
   createDefaultSchedule,
   WEEKDAYS,
@@ -13,6 +14,7 @@ export type EffectiveGoalDaySource = "schedule" | "override";
 
 export interface EffectiveGoalDay {
   goalId: string;
+  trackingStarted: boolean;
   scheduled: boolean;
   skipped: boolean;
   targetMinutes: number;
@@ -89,10 +91,21 @@ export function applyDefaultTargetToAllDays(goal: DailyGoal): DailyGoal {
 
 export function getEffectiveGoalDay(goal: DailyGoal, dateKey: string): EffectiveGoalDay {
   const scheduled = getGoalSchedule(goal)[getWeekday(dateKey)];
+  if (!hasGoalTrackingStartedByDate(goal, dateKey)) {
+    return {
+      goalId: goal.id,
+      trackingStarted: false,
+      scheduled: false,
+      skipped: false,
+      targetMinutes: scheduled.targetMinutes,
+      source: "schedule"
+    };
+  }
   const override = goal.overrides?.[dateKey];
   if (override?.kind === "skip") {
     return {
       goalId: goal.id,
+      trackingStarted: true,
       scheduled: false,
       skipped: true,
       targetMinutes: scheduled.targetMinutes,
@@ -102,6 +115,7 @@ export function getEffectiveGoalDay(goal: DailyGoal, dateKey: string): Effective
   if (override?.kind === "target") {
     return {
       goalId: goal.id,
+      trackingStarted: true,
       scheduled: goal.enabled,
       skipped: false,
       targetMinutes: override.targetMinutes,
@@ -110,6 +124,7 @@ export function getEffectiveGoalDay(goal: DailyGoal, dateKey: string): Effective
   }
   return {
     goalId: goal.id,
+    trackingStarted: true,
     scheduled: goal.enabled && scheduled.enabled,
     skipped: false,
     targetMinutes: scheduled.targetMinutes,
@@ -134,7 +149,7 @@ export function applyScheduleToProgress(
   return goals.map((goal) => {
     const effective = getEffectiveGoalDay(goal, dateKey);
     const raw = progressByGoal.get(goal.id);
-    const activeSeconds = raw?.activeSeconds ?? 0;
+    const activeSeconds = effective.trackingStarted ? raw?.activeSeconds ?? 0 : 0;
     const targetSeconds = effective.targetMinutes * 60;
     return {
       ...effective,

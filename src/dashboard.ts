@@ -1,4 +1,5 @@
 import type { DailyGoal, GoalProgress } from "./models";
+import { hasGoalTrackingStartedByDate } from "./goal-lifecycle";
 import {
   applyScheduleToProgress,
   getEffectiveGoalDay,
@@ -9,6 +10,7 @@ import {
 export interface DailySummary {
   totalActiveSeconds: number;
   completedGoals: number;
+  trackedGoalCount: number;
   goalCount: number;
 }
 
@@ -33,6 +35,7 @@ export interface GoalDayStats {
   dateKey: string;
   future: boolean;
   available: boolean;
+  trackingStarted: boolean;
   scheduled: boolean;
   skipped: boolean;
   targetMinutes: number;
@@ -75,6 +78,7 @@ export function summarizeDay(
       0
     ),
     completedGoals: planned.filter((item) => item.scheduled && item.completed).length,
+    trackedGoalCount: planned.filter((item) => enabledIds.has(item.goalId) && item.trackingStarted).length,
     goalCount: planned.filter((item) => item.scheduled).length
   };
 }
@@ -128,7 +132,7 @@ function buildGoalWeekStats(
   const goalDays = days.map((day): GoalDayStats => {
     const effective = getEffectiveGoalDay(goal, day.dateKey);
     const raw = day.progress?.find((progress) => progress.goalId === goal.id);
-    const available = !day.future && day.progress !== undefined;
+    const available = effective.trackingStarted && !day.future && day.progress !== undefined;
     const activeSeconds = available ? raw?.activeSeconds ?? 0 : undefined;
     const completed = available && effective.scheduled
       ? (activeSeconds ?? 0) >= effective.targetMinutes * 60
@@ -173,12 +177,14 @@ export function summarizeWeek(
 
   for (const day of days) {
     if (day.future) continue;
+    const trackedGoals = enabledGoals.filter((goal) => hasGoalTrackingStartedByDate(goal, day.dateKey));
+    if (trackedGoals.length === 0) continue;
     elapsedDays += 1;
     if (day.progress === undefined) {
       unavailableDays += 1;
       continue;
     }
-    const summary = summarizeDay(enabledGoals, day.progress, day.dateKey);
+    const summary = summarizeDay(trackedGoals, day.progress, day.dateKey);
     totalActiveSeconds += summary.totalActiveSeconds;
     completedGoals += summary.completedGoals;
     goalOpportunities += summary.goalCount;

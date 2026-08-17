@@ -47,9 +47,11 @@ export interface DailyGoal {
   id: string;
   name: string;
   targetMinutes: number;
-  /** Present on normalized schema-v5 data; optional here so legacy in-memory goals remain adaptable. */
+  /** Present on normalized schema-v6 data; optional here so legacy in-memory goals remain adaptable. */
   schedule?: GoalSchedule;
   overrides?: Record<string, GoalDayOverride>;
+  /** Missing on legacy goals whose original tracking start is unknown. */
+  trackingStartedAt?: string;
   rules: GoalRule[];
   contextTimeoutMinutes: number;
   enabled: boolean;
@@ -111,7 +113,7 @@ export interface ActivityWatchSnapshot {
   activity: DayActivity;
 }
 
-export const DATA_SCHEMA_VERSION = 5;
+export const DATA_SCHEMA_VERSION = 6;
 export const DEFAULT_CONTEXT_TIMEOUT_MINUTES = 10;
 
 export const DEFAULT_SETTINGS: DailyHubSettings = {

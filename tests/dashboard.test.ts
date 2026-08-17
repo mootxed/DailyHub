@@ -54,13 +54,19 @@ describe("dashboard summaries", () => {
       progress("devops", 3_600, true),
       progress("typing", 1_200, false),
       progress("disabled", 600, true)
-    ], "2026-08-17")).toEqual({ totalActiveSeconds: 4_800, completedGoals: 1, goalCount: 2 });
+    ], "2026-08-17")).toEqual({
+      totalActiveSeconds: 4_800,
+      completedGoals: 1,
+      trackedGoalCount: 2,
+      goalCount: 2
+    });
   });
 
   it("returns a zero summary for a future day", () => {
     expect(summarizeDay(goals, [], "2026-08-17")).toEqual({
       totalActiveSeconds: 0,
       completedGoals: 0,
+      trackedGoalCount: 2,
       goalCount: 2
     });
   });
@@ -245,5 +251,33 @@ describe("weekly analytics", () => {
     });
     expect(week.goals[0]).toMatchObject({ completedDays: 3, trackedDays: 4 });
     expect(week.goals[0]?.days[2]).toMatchObject({ scheduled: false, skipped: false });
+  });
+
+  it("starts weekly opportunities and availability on the local creation date", () => {
+    const trackedGoal = {
+      ...devopsGoal,
+      trackingStartedAt: new Date(2026, 7, 19, 12).toISOString()
+    };
+    const week = summarizeWeek([trackedGoal], [
+      weekDay("2026-08-17", undefined),
+      weekDay("2026-08-18", [progress("devops", 3_600, true)]),
+      weekDay("2026-08-19", [progress("devops", 3_600, true)])
+    ], "2026-08-17");
+
+    expect(week).toMatchObject({
+      totalActiveSeconds: 3_600,
+      dailyAverageSeconds: 3_600,
+      completedGoals: 1,
+      goalOpportunities: 1,
+      elapsedDays: 1,
+      unavailableDays: 0
+    });
+    expect(week.goals[0]).toMatchObject({ completedDays: 1, trackedDays: 1 });
+    expect(week.goals[0]?.days.map((day) => day.trackingStarted)).toEqual([false, false, true]);
+    expect(week.goals[0]?.selectedDay).toMatchObject({
+      trackingStarted: false,
+      scheduled: false,
+      available: false
+    });
   });
 });

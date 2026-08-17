@@ -14,6 +14,7 @@ import {
   type RuleField
 } from "./models";
 import { getLocalDateRange } from "./date";
+import { isValidTrackingStartedAt } from "./goal-lifecycle";
 import { isValidTargetMinutes } from "./schedule";
 
 const RULE_FIELDS = new Set<RuleField>(["url", "application", "windowTitle"]);
@@ -106,6 +107,9 @@ function parseGoal(value: unknown): DailyGoal | undefined {
     targetMinutes: value.targetMinutes,
     schedule: parseSchedule(value.schedule, value.targetMinutes),
     overrides: parseOverrides(value.overrides),
+    ...(isValidTrackingStartedAt(value.trackingStartedAt)
+      ? { trackingStartedAt: value.trackingStartedAt }
+      : {}),
     enabled: value.enabled,
     rules,
     contextTimeoutMinutes: typeof value.contextTimeoutMinutes === "number"

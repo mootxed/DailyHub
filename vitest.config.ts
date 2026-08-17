@@ -24,6 +24,12 @@ export default defineConfig({
           functions: 95,
           branches: 80
         },
+        "src/goal-lifecycle.ts": {
+          lines: 100,
+          statements: 100,
+          functions: 100,
+          branches: 100
+        },
         "src/activity-cache.ts": {
           lines: 85,
           statements: 85,

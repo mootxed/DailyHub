@@ -53,6 +53,7 @@ describe("effective goal schedules", () => {
     expect(getGoalSchedule(legacy)).toEqual(createDefaultSchedule(60));
     expect(getEffectiveGoalDay(legacy, "2026-08-17")).toEqual({
       goalId: "devops",
+      trackingStarted: true,
       scheduled: true,
       skipped: false,
       targetMinutes: 60,
@@ -95,6 +96,29 @@ describe("effective goal schedules", () => {
       source: "override"
     });
     expect(getEffectiveGoalDay({ ...overridden, enabled: false }, "2026-08-17").scheduled).toBe(false);
+  });
+
+  it("gives lifecycle priority over overrides and starts planning on the local creation date", () => {
+    const tracked = goal({
+      trackingStartedAt: new Date(2026, 7, 17, 12).toISOString(),
+      overrides: { "2026-08-16": { kind: "target", targetMinutes: 90 } }
+    });
+
+    expect(getEffectiveGoalDay(tracked, "2026-08-16")).toMatchObject({
+      trackingStarted: false,
+      scheduled: false,
+      skipped: false,
+      source: "schedule"
+    });
+    expect(getEffectiveGoalDay(tracked, "2026-08-17")).toMatchObject({
+      trackingStarted: true,
+      scheduled: true
+    });
+    expect(applyScheduleToProgress([tracked], [progress(3_600)], "2026-08-16")[0]).toMatchObject({
+      activeSeconds: 0,
+      completed: false,
+      progressRatio: undefined
+    });
   });
 
   it("recalculates completion from raw attribution using the effective target", () => {

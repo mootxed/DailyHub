@@ -61,7 +61,12 @@ export class GoalDetailsModal extends Modal {
       cls: "daily-hub-muted"
     });
     const selectedDay = week.selectedDay;
-    if (selectedDay !== undefined && !selectedDay.scheduled) {
+    if (selectedDay !== undefined && !selectedDay.trackingStarted) {
+      selected.createEl("strong", {
+        text: "Not tracked yet",
+        cls: "daily-hub-details-value daily-hub-rest-day"
+      });
+    } else if (selectedDay !== undefined && !selectedDay.scheduled) {
       selected.createEl("strong", {
         text: selectedDay.skipped ? "Skipped" : "Rest day",
         cls: "daily-hub-details-value daily-hub-rest-day"
@@ -111,7 +116,9 @@ export class GoalDetailsModal extends Modal {
         text: new Intl.DateTimeFormat(undefined, { weekday: "short" })
           .format(getLocalDateRange(day.dateKey).start)
       });
-      const value = !day.scheduled
+      const value = !day.trackingStarted
+        ? "Not tracked"
+        : !day.scheduled
         ? day.skipped ? "Skipped" : "Rest"
         : day.future
           ? `Planned ${day.targetMinutes} min`

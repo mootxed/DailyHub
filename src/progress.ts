@@ -1,4 +1,5 @@
 import { getLocalDateRange } from "./date";
+import { getTrackingStartMs, isGoalTrackingActiveAt } from "./goal-lifecycle";
 import { goalMatches, pickMatchingPrimaryGoal } from "./matcher";
 import type { ActivityContext, ActivityEvent, DailyGoal, DayActivity, GoalProgress } from "./models";
 
@@ -116,6 +117,12 @@ export function calculateDailyProgress(
     boundaries.add(timed.startMs);
     boundaries.add(timed.endMs);
   }
+  for (const goal of goals) {
+    const trackingStartMs = getTrackingStartMs(goal);
+    if (trackingStartMs !== undefined && trackingStartMs > rangeStart && trackingStartMs < rangeEnd) {
+      boundaries.add(trackingStartMs);
+    }
+  }
 
   const secondsByGoal = new Map(goals.map((goal) => [goal.id, 0]));
   const goalsById = new Map(goals.map((goal) => [goal.id, goal]));
@@ -133,7 +140,8 @@ export function calculateDailyProgress(
 
     const activityContext = contextAt(windowEvent, browserEvent);
     const duringAfk = isAfk(eventAt(afkEvents, start));
-    const primaryGoal = pickMatchingPrimaryGoal(goals, activityContext, duringAfk);
+    const eligibleGoals = goals.filter((goal) => isGoalTrackingActiveAt(goal, start));
+    const primaryGoal = pickMatchingPrimaryGoal(eligibleGoals, activityContext, duringAfk);
     if (primaryGoal !== undefined) {
       secondsByGoal.set(primaryGoal.id, (secondsByGoal.get(primaryGoal.id) ?? 0) + (end - start) / 1000);
       currentContext = { goalId: primaryGoal.id, lastPrimaryTimestamp: end };
