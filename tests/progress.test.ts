@@ -267,7 +267,7 @@ describe("daily progress", () => {
     expect(result[0]?.activeSeconds).toBe(0);
   });
 
-  it("continues a primary context in a matching application", () => {
+  it("counts continuation only inside the primary lease", () => {
     const result = calculateDailyProgress([contextGoal()], activity({
       windowEvents: [
         event(0, 600, { app: "Firefox", title: "Stepik" }),
@@ -281,10 +281,10 @@ describe("daily progress", () => {
         "aw-watcher-web-firefox_host"
       )]
     }), DATE);
-    expect(result[0]?.activeSeconds).toBe(1_800);
+    expect(result[0]?.activeSeconds).toBe(1_200);
   });
 
-  it("keeps context alive throughout a long continuous continuation", () => {
+  it("does not let a long continuous continuation refresh context", () => {
     const result = calculateDailyProgress([contextGoal()], activity({
       windowEvents: [
         event(0, 300, { app: "Firefox", title: "Stepik" }),
@@ -298,10 +298,10 @@ describe("daily progress", () => {
         "aw-watcher-web-firefox_host"
       )]
     }), DATE);
-    expect(result[0]?.activeSeconds).toBe(2_100);
+    expect(result[0]?.activeSeconds).toBe(900);
   });
 
-  it("allows continuation after a short unrelated interruption without counting it", () => {
+  it("does not let continuation preserve context across an interruption", () => {
     const result = calculateDailyProgress([contextGoal()], activity({
       windowEvents: [
         event(0, 300, { app: "Firefox", title: "Stepik" }),
@@ -317,7 +317,52 @@ describe("daily progress", () => {
         "aw-watcher-web-firefox_host"
       )]
     }), DATE);
+    expect(result[0]?.activeSeconds).toBe(900);
+  });
+
+  it("refreshes the lease when a new primary segment matches", () => {
+    const result = calculateDailyProgress([contextGoal()], activity({
+      windowEvents: [
+        event(0, 300, { app: "Firefox", title: "Stepik" }),
+        event(300, 300, { app: "Terminal" }),
+        event(600, 300, { app: "Firefox", title: "Stepik" }),
+        event(900, 600, { app: "Terminal" })
+      ],
+      browserEvents: [
+        event(
+          0,
+          300,
+          { url: "https://stepik.org/lesson/1", title: "Stepik" },
+          DATE,
+          "aw-watcher-web-firefox_host"
+        ),
+        event(
+          600,
+          300,
+          { url: "https://stepik.org/lesson/2", title: "Stepik" },
+          DATE,
+          "aw-watcher-web-firefox_host"
+        )
+      ]
+    }), DATE);
     expect(result[0]?.activeSeconds).toBe(1_500);
+  });
+
+  it("clips a continuation event at the exact lease boundary", () => {
+    const result = calculateDailyProgress([contextGoal()], activity({
+      windowEvents: [
+        event(0, 300, { app: "Firefox", title: "Stepik" }),
+        event(300, 900, { app: "Terminal" })
+      ],
+      browserEvents: [event(
+        0,
+        300,
+        { url: "https://stepik.org/lesson/1", title: "Stepik" },
+        DATE,
+        "aw-watcher-web-firefox_host"
+      )]
+    }), DATE);
+    expect(result[0]?.activeSeconds).toBe(900);
   });
 
   it("expires context after a long unrelated interruption", () => {

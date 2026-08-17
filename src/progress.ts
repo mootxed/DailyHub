@@ -10,7 +10,7 @@ interface TimedEvent {
 
 interface GoalContext {
   goalId: string;
-  lastRelevantTimestamp: number;
+  lastPrimaryTimestamp: number;
 }
 
 function parseEvents(events: ActivityEvent[], rangeStart: number, rangeEnd: number): TimedEvent[] {
@@ -136,7 +136,7 @@ export function calculateDailyProgress(
     const primaryGoal = pickMatchingPrimaryGoal(goals, activityContext, duringAfk);
     if (primaryGoal !== undefined) {
       secondsByGoal.set(primaryGoal.id, (secondsByGoal.get(primaryGoal.id) ?? 0) + (end - start) / 1000);
-      currentContext = { goalId: primaryGoal.id, lastRelevantTimestamp: end };
+      currentContext = { goalId: primaryGoal.id, lastPrimaryTimestamp: end };
       continue;
     }
 
@@ -145,11 +145,16 @@ export function calculateDailyProgress(
     if (currentContext !== undefined) {
       const contextGoal = goalsById.get(currentContext.goalId);
       const timeoutMs = (contextGoal?.contextTimeoutMinutes ?? 0) * 60_000;
-      if (contextGoal === undefined || start - currentContext.lastRelevantTimestamp > timeoutMs) {
+      const leaseEnd = currentContext.lastPrimaryTimestamp + timeoutMs;
+      if (contextGoal === undefined || start >= leaseEnd) {
         currentContext = undefined;
       } else if (goalMatches(contextGoal, activityContext, "continuation")) {
-        secondsByGoal.set(contextGoal.id, (secondsByGoal.get(contextGoal.id) ?? 0) + (end - start) / 1000);
-        currentContext.lastRelevantTimestamp = end;
+        const countedEnd = Math.min(end, leaseEnd);
+        secondsByGoal.set(
+          contextGoal.id,
+          (secondsByGoal.get(contextGoal.id) ?? 0) + (countedEnd - start) / 1000
+        );
+        if (end >= leaseEnd) currentContext = undefined;
       }
     }
   }

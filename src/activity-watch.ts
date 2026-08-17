@@ -48,6 +48,10 @@ function parseEvents(value: unknown, sourceBucketId: string): ActivityEvent[] {
 
 export class ActivityWatchClient {
   private readonly baseUrl: string;
+  private sourcesRequest: Promise<{
+    hostname: string | undefined;
+    buckets: ActivityWatchBucket[];
+  }> | undefined;
 
   constructor(baseUrl: string) {
     this.baseUrl = baseUrl.trim().replace(/\/+$/, "");
@@ -55,8 +59,7 @@ export class ActivityWatchClient {
 
   async getStatus(): Promise<ActivityWatchStatus> {
     try {
-      const hostname = await this.getHostname();
-      const buckets = await this.getBuckets();
+      const { hostname, buckets } = await this.getSources();
       const selected = selectActivityWatchBuckets(buckets, hostname);
       const availability = getWatcherAvailability(selected);
       return {
@@ -75,15 +78,13 @@ export class ActivityWatchClient {
   }
 
   async getActivityForDate(date: Date | string): Promise<DayActivity> {
-    const hostname = await this.getHostname();
-    const buckets = await this.getBuckets();
+    const { hostname, buckets } = await this.getSources();
     return this.loadActivity(buckets, hostname, date);
   }
 
   async getDaySnapshot(date: Date | string): Promise<ActivityWatchSnapshot> {
     try {
-      const hostname = await this.getHostname();
-      const buckets = await this.getBuckets();
+      const { hostname, buckets } = await this.getSources();
       const selected = selectActivityWatchBuckets(buckets, hostname);
       const availability = getWatcherAvailability(selected);
       const activity = await this.loadSelectedActivity(selected, date);
@@ -110,6 +111,18 @@ export class ActivityWatchClient {
 
   private async getBuckets(): Promise<ActivityWatchBucket[]> {
     return parseBuckets(await this.getJson("/api/0/buckets"));
+  }
+
+  private getSources(): Promise<{ hostname: string | undefined; buckets: ActivityWatchBucket[] }> {
+    if (this.sourcesRequest !== undefined) return this.sourcesRequest;
+
+    const request = Promise.all([this.getHostname(), this.getBuckets()])
+      .then(([hostname, buckets]) => ({ hostname, buckets }))
+      .finally(() => {
+        if (this.sourcesRequest === request) this.sourcesRequest = undefined;
+      });
+    this.sourcesRequest = request;
+    return request;
   }
 
   private async loadActivity(

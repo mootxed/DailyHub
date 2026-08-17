@@ -87,7 +87,7 @@ export class DailyHubSettingTab extends PluginSettingTab {
       .setName("Add goal")
       .setDesc("Rules within each section use OR logic.")
       .addButton((button) => button.setCta().setButtonText("Add goal").onClick(() => {
-        new GoalEditorModal(this.plugin).open();
+        new GoalEditorModal(this.plugin, undefined, () => this.display()).open();
       }));
 
     if (this.plugin.data.goals.length === 0) {
@@ -104,7 +104,9 @@ export class DailyHubSettingTab extends PluginSettingTab {
         }))
         .addButton((button) => button.setButtonText("Edit").onClick(() => {
           const currentGoal = this.plugin.data.goals.find((candidate) => candidate.id === goal.id);
-          if (currentGoal !== undefined) new GoalEditorModal(this.plugin, currentGoal).open();
+          if (currentGoal !== undefined) {
+            new GoalEditorModal(this.plugin, currentGoal, () => this.display()).open();
+          }
         }))
         .addButton((button) => button.setWarning().setButtonText("Delete").onClick(async () => {
           if (window.confirm(`Delete daily goal “${goal.name}”?`)) {

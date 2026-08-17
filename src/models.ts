@@ -106,7 +106,12 @@ export function createId(): string {
 }
 
 export function createEmptyRule(role: GoalRuleRole = "primary"): GoalRule {
-  const rule = { id: createId(), field: "url" as const, operator: "contains" as const, value: "" };
+  const rule = {
+    id: createId(),
+    field: role === "primary" ? "url" as const : "application" as const,
+    operator: "contains" as const,
+    value: ""
+  };
   return role === "primary"
     ? { ...rule, role, countDuringAfk: false }
     : { ...rule, role };

@@ -4,9 +4,12 @@ Daily Hub is a desktop [Obsidian](https://obsidian.md/) community plugin that tr
 
 > **Privacy:** Daily Hub works locally and does not send your activity history to third-party servers. Raw activity remains in ActivityWatch; the plugin stores only its settings, goals, and daily notification markers in Obsidian plugin data.
 
-## Current MVP
+## Dashboard
 
-- A dedicated **Daily Hub** view with live progress bars.
+- A dedicated **Daily Hub** view with live progress bars, remaining time, and above-target totals.
+- A seven-day navigator with a persistent Today shortcut when another date is selected.
+- A daily summary with total studied time and enabled-goal completion count.
+- A clickable Monday–Sunday overview for the selected date's local week.
 - Unlimited daily goals with a minimum number of minutes.
 - Case-insensitive `contains` and `equals` primary/continuation rules for URL, application, and window title.
 - OR matching within each rule group and deterministic single-goal attribution if goals overlap.
@@ -15,7 +18,7 @@ Daily Hub is a desktop [Obsidian](https://obsidian.md/) community plugin that tr
 - Automatic refresh and refresh when Obsidian returns to the foreground.
 - One Obsidian completion notice per goal per day.
 - Goal management from the dashboard or plugin settings.
-- Date-independent calculation APIs, ready for a future date navigator.
+- On-demand historical recalculation from ActivityWatch for any selected local date.
 
 Reaching the minimum completes a goal but does not stop tracking. A 30-minute goal can show `43 / 30 min`, while its progress bar remains visually capped at 100%.
 
@@ -112,19 +115,22 @@ Continuation: Application contains code
 Context timeout: 10 min
 ```
 
-After an active Stepik page identifies DevOps, work in Terminal or VS Code continues to count. Opening those applications without the earlier Stepik activity does not start DevOps. Continuous primary or continuation activity keeps the context alive; the timeout measures how long the goal may be remembered across unrelated or AFK activity. Unrelated activity itself is never counted.
+After an active Stepik page identifies DevOps, work in Terminal or VS Code can continue to count for 10 minutes after the most recent matching Primary activity. Primary activity establishes and refreshes this context lease. Continuation activity can use the lease but does **not** refresh it, so closing Stepik cannot make Terminal count indefinitely. Opening those applications without the earlier Stepik activity does not start DevOps. Unrelated activity itself is never counted.
 
-For passive activities such as video lessons, a specific Primary rule can enable **Count while AFK**. That rule must still match the current foreground activity, so a background Stepik tab is not counted. Continuation rules never count while AFK.
+For passive activities such as video lessons, a specific Primary rule can enable **Count while AFK**. That rule must still match the current foreground activity, so a background Stepik tab is not counted. A matching passive Primary continues to refresh the context lease while it remains in the foreground. Continuation rules never count while AFK and never extend the lease.
 
 ## How counting works
 
 ActivityWatch remains the source of truth. Daily Hub requests the selected local-day range, clips and sorts events, combines a browser URL only with its corresponding active browser window, applies rule-aware AFK exclusion, matches timeline segments to enabled goals, and computes progress on demand. Context is reconstructed from that timeline for every calculation and is not stored in plugin data. It prefers the current ActivityWatch hostname and the newest duplicate bucket for each source. It does not duplicate raw ActivityWatch history into the vault.
 
+Weekly days load in parallel. In-memory snapshots are keyed by ActivityWatch URL and local date: today's and failed entries expire quickly, while successful historical entries remain cached for the plugin session. Refresh invalidates the selected week, selected date, and Today. No raw history or derived weekly database is written to the vault.
+
+Historical totals always use the current goal configuration. Changing a rule, target, or enabled state can therefore change the recalculated result for an older day; Daily Hub does not keep versioned goal history yet.
+
 If two goals' primary rules accidentally match one segment, only the goal with the lexicographically smallest stable goal ID receives the time. This deterministic fallback prevents double-counting; rules are easiest to understand when they do not overlap.
 
-## MVP limitations
+## Current limitations
 
-- The dashboard currently displays today; the calculation layer already accepts arbitrary dates.
 - Context starts empty at midnight for each calculated local day; it is not carried across day boundaries.
 - No automatic ActivityWatch binary or browser-extension installation.
 - No manual timers, schedules, weekly/monthly goals, streaks, calendar integrations, or cloud sync.

@@ -1,4 +1,5 @@
 import { Notice, Plugin, type WorkspaceLeaf } from "obsidian";
+import { ActivitySnapshotCache } from "./activity-cache";
 import { ActivityWatchClient } from "./activity-watch";
 import { normalizeData, requiresDataMigration } from "./data";
 import { toLocalDateKey } from "./date";
@@ -17,7 +18,10 @@ import { DAILY_HUB_VIEW_TYPE, DailyHubView } from "./view";
 export default class DailyHubPlugin extends Plugin {
   data: DailyHubData = structuredClone(DEFAULT_DATA);
   private refreshTimer: number | undefined;
-  private activityRequest: { key: string; promise: Promise<ActivityWatchSnapshot> } | undefined;
+  private readonly activityClients = new Map<string, ActivityWatchClient>();
+  private readonly activityCache = new ActivitySnapshotCache((activityWatchUrl, dateKey) => (
+    this.getActivityClient(activityWatchUrl).getDaySnapshot(dateKey)
+  ));
 
   override async onload(): Promise<void> {
     const storedData = await this.loadData() as unknown;
@@ -86,16 +90,21 @@ export default class DailyHubPlugin extends Plugin {
     await Promise.all(views.map((view) => view.refresh()));
   }
 
-  getActivitySnapshot(date: Date): Promise<ActivityWatchSnapshot> {
-    const key = `${this.data.settings.activityWatchUrl}:${toLocalDateKey(date)}`;
-    if (this.activityRequest?.key === key) return this.activityRequest.promise;
+  getActivitySnapshot(date: Date | string): Promise<ActivityWatchSnapshot> {
+    const dateKey = typeof date === "string" ? date : toLocalDateKey(date);
+    return this.activityCache.get(this.data.settings.activityWatchUrl, dateKey);
+  }
 
-    const client = new ActivityWatchClient(this.data.settings.activityWatchUrl);
-    const promise = client.getDaySnapshot(date).finally(() => {
-      if (this.activityRequest?.promise === promise) this.activityRequest = undefined;
-    });
-    this.activityRequest = { key, promise };
-    return promise;
+  invalidateActivitySnapshots(dateKeys: Iterable<string>): void {
+    this.activityCache.invalidate(this.data.settings.activityWatchUrl, dateKeys);
+  }
+
+  private getActivityClient(activityWatchUrl: string): ActivityWatchClient {
+    const existing = this.activityClients.get(activityWatchUrl);
+    if (existing !== undefined) return existing;
+    const client = new ActivityWatchClient(activityWatchUrl);
+    this.activityClients.set(activityWatchUrl, client);
+    return client;
   }
 
   resetRefreshInterval(): void {

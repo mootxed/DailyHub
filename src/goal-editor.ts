@@ -15,11 +15,13 @@ function copyGoal(goal: DailyGoal): DailyGoal {
 export class GoalEditorModal extends Modal {
   private readonly plugin: DailyHubPlugin;
   private readonly draft: DailyGoal;
+  private readonly onSaved: (() => void) | undefined;
 
-  constructor(plugin: DailyHubPlugin, goal?: DailyGoal) {
+  constructor(plugin: DailyHubPlugin, goal?: DailyGoal, onSaved?: () => void) {
     super(plugin.app);
     this.plugin = plugin;
     this.draft = goal === undefined ? createEmptyGoal() : copyGoal(goal);
+    this.onSaved = onSaved;
   }
 
   override onOpen(): void {
@@ -61,8 +63,8 @@ export class GoalEditorModal extends Modal {
     new Setting(this.contentEl)
       .setName("Context timeout (minutes)")
       .setDesc(
-        "How long Daily Hub remembers this goal after unrelated activity. "
-        + "Continuous primary or continuation activity keeps the context alive."
+        "How long continuation activities may count after the most recent Primary activity. "
+        + "Continuation rules do not extend this timeout."
       )
       .addText((text) => {
         text.inputEl.type = "number";
@@ -82,7 +84,7 @@ export class GoalEditorModal extends Modal {
     this.renderRuleSection(
       "continuation",
       "Continuation rules",
-      "These activities count only after this goal was recently identified.",
+      "Activities allowed shortly after a Primary match. They do not extend the context timeout.",
       "Add continuation rule"
     );
 
@@ -195,6 +197,7 @@ export class GoalEditorModal extends Modal {
     }
 
     await this.plugin.upsertGoal(this.draft);
+    this.onSaved?.();
     this.close();
   }
 }

@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { updateGoalEnabled, type DailyGoal } from "../src/models";
+import { createEmptyRule, updateGoalEnabled, type DailyGoal } from "../src/models";
 
 describe("goal mutations", () => {
+  it("uses URL for new primary rules and Application for continuation rules", () => {
+    expect(createEmptyRule("primary")).toMatchObject({ role: "primary", field: "url" });
+    expect(createEmptyRule("continuation")).toMatchObject({ role: "continuation", field: "application" });
+  });
+
   it("changes only enabled on the latest stored goal", () => {
     const staleSnapshot: DailyGoal = {
       id: "devops",
