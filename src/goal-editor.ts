@@ -10,7 +10,13 @@ import {
   type GoalSchedule,
   type Weekday
 } from "./models";
-import { getGoalSchedule, isValidTargetMinutes, updateDefaultTarget } from "./schedule";
+import {
+  applyDefaultTargetToAllDays,
+  getGoalSchedule,
+  isValidTargetMinutes,
+  parseDefaultTargetInput,
+  updateDefaultTarget
+} from "./schedule";
 
 function copyGoal(goal: DailyGoal): DailyGoal {
   const schedule = getGoalSchedule(goal);
@@ -27,12 +33,15 @@ export class GoalEditorModal extends Modal {
   private draft: DailyGoal;
   private readonly onSaved: (() => void) | undefined;
   private readonly scheduleTargetInputs = new Map<Weekday, HTMLInputElement>();
+  private readonly explicitlyEditedWeekdays = new Set<Weekday>();
+  private defaultTargetValue: string;
 
   constructor(plugin: DailyHubPlugin, goal?: DailyGoal, onSaved?: () => void) {
     super(plugin.app);
     this.plugin = plugin;
     this.draft = goal === undefined ? createEmptyGoal() : copyGoal(goal);
     this.onSaved = onSaved;
+    this.defaultTargetValue = String(this.draft.targetMinutes);
   }
 
   override onOpen(): void {
@@ -61,10 +70,11 @@ export class GoalEditorModal extends Modal {
       .addText((text) => {
         text.inputEl.type = "number";
         text.inputEl.min = "1";
-        text.setValue(String(this.draft.targetMinutes)).onChange((value) => {
-          const targetMinutes = Number(value);
-          if (!isValidTargetMinutes(targetMinutes)) return;
-          this.draft = updateDefaultTarget(this.draft, targetMinutes);
+        text.setValue(this.defaultTargetValue).onChange((value) => {
+          this.defaultTargetValue = value;
+          const targetMinutes = parseDefaultTargetInput(value);
+          if (targetMinutes === undefined) return;
+          this.draft = updateDefaultTarget(this.draft, targetMinutes, this.explicitlyEditedWeekdays);
           this.refreshScheduleTargetInputs();
         });
       });
@@ -142,6 +152,7 @@ export class GoalEditorModal extends Modal {
         suffix.setText(currentDay.enabled ? "min" : "Rest");
       });
       target.addEventListener("input", () => {
+        this.explicitlyEditedWeekdays.add(weekday);
         getGoalSchedule(this.draft)[weekday].targetMinutes = Number(target.value);
       });
     });
@@ -150,8 +161,8 @@ export class GoalEditorModal extends Modal {
       cls: "daily-hub-schedule-apply"
     });
     applyDefault.addEventListener("click", () => {
-      const currentSchedule = getGoalSchedule(this.draft);
-      for (const weekday of WEEKDAYS) currentSchedule[weekday].targetMinutes = this.draft.targetMinutes;
+      this.draft = applyDefaultTargetToAllDays(this.draft);
+      this.explicitlyEditedWeekdays.clear();
       this.render();
     });
   }
@@ -253,8 +264,9 @@ export class GoalEditorModal extends Modal {
       new Notice("Daily Hub: enter a goal name");
       return;
     }
-    if (!Number.isFinite(this.draft.targetMinutes) || this.draft.targetMinutes <= 0) {
-      new Notice("Daily Hub: default target must be greater than zero");
+    const defaultTarget = parseDefaultTargetInput(this.defaultTargetValue);
+    if (defaultTarget === undefined) {
+      new Notice("Daily Hub: default target must be at least one minute");
       return;
     }
     const schedule = getGoalSchedule(this.draft);

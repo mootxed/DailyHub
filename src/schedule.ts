@@ -30,6 +30,11 @@ export function isValidTargetMinutes(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 1;
 }
 
+export function parseDefaultTargetInput(value: string): number | undefined {
+  const targetMinutes = Number(value);
+  return isValidTargetMinutes(targetMinutes) ? targetMinutes : undefined;
+}
+
 export function getWeekday(dateKey: string): Weekday {
   const day = getLocalDateRange(dateKey).start.getDay();
   const weekday = WEEKDAYS[(day + 6) % 7];
@@ -41,7 +46,11 @@ export function getGoalSchedule(goal: Pick<DailyGoal, "targetMinutes" | "schedul
   return goal.schedule ?? createDefaultSchedule(goal.targetMinutes);
 }
 
-export function updateDefaultTarget(goal: DailyGoal, newTargetMinutes: number): DailyGoal {
+export function updateDefaultTarget(
+  goal: DailyGoal,
+  newTargetMinutes: number,
+  protectedWeekdays?: ReadonlySet<Weekday>
+): DailyGoal {
   if (!isValidTargetMinutes(newTargetMinutes)) throw new Error("Invalid default target");
   const oldTargetMinutes = goal.targetMinutes;
   const schedule = getGoalSchedule(goal);
@@ -52,9 +61,22 @@ export function updateDefaultTarget(goal: DailyGoal, newTargetMinutes: number): 
       const day = schedule[weekday];
       return [weekday, {
         ...day,
-        targetMinutes: day.targetMinutes === oldTargetMinutes ? newTargetMinutes : day.targetMinutes
+        targetMinutes: !protectedWeekdays?.has(weekday) && day.targetMinutes === oldTargetMinutes
+          ? newTargetMinutes
+          : day.targetMinutes
       }];
     })) as GoalSchedule
+  };
+}
+
+export function applyDefaultTargetToAllDays(goal: DailyGoal): DailyGoal {
+  const schedule = getGoalSchedule(goal);
+  return {
+    ...goal,
+    schedule: Object.fromEntries(WEEKDAYS.map((weekday) => [weekday, {
+      ...schedule[weekday],
+      targetMinutes: goal.targetMinutes
+    }])) as GoalSchedule
   };
 }
 
@@ -118,8 +140,8 @@ export function applyScheduleToProgress(
 }
 
 export function parseTargetOverride(value: string): GoalDayOverride | undefined {
-  const targetMinutes = Number(value);
-  return isValidTargetMinutes(targetMinutes) ? { kind: "target", targetMinutes } : undefined;
+  const targetMinutes = parseDefaultTargetInput(value);
+  return targetMinutes === undefined ? undefined : { kind: "target", targetMinutes };
 }
 
 export function withGoalDayOverride(

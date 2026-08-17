@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createDefaultSchedule, type DailyGoal, type GoalProgress } from "../src/models";
 import {
+  applyDefaultTargetToAllDays,
   applyScheduleToProgress,
   getEffectiveGoalDay,
   getEffectiveTargetMinutes,
@@ -8,6 +9,7 @@ import {
   getWeekday,
   isGoalScheduled,
   isValidTargetMinutes,
+  parseDefaultTargetInput,
   parseTargetOverride,
   updateDefaultTarget,
   withGoalDayOverride
@@ -149,6 +151,15 @@ describe("override editing", () => {
 });
 
 describe("default target editing", () => {
+  it("parses valid raw input and rejects invalid visible values", () => {
+    expect(parseDefaultTargetInput("60")).toBe(60);
+    expect(parseDefaultTargetInput("1.5")).toBe(1.5);
+    expect(parseDefaultTargetInput("0")).toBeUndefined();
+    expect(parseDefaultTargetInput("")).toBeUndefined();
+    expect(parseDefaultTargetInput("abc")).toBeUndefined();
+    expect(parseDefaultTargetInput("Infinity")).toBeUndefined();
+  });
+
   it("updates inherited targets while preserving custom weekday targets", () => {
     const original = goal({ targetMinutes: 30, schedule: createDefaultSchedule(30) });
     getGoalSchedule(original).tuesday.targetMinutes = 45;
@@ -195,6 +206,60 @@ describe("default target editing", () => {
     expect(updatedSchedule.tuesday.targetMinutes).toBe(45);
     expect(updated.overrides).toEqual(overrides);
     expect(original.overrides).toEqual(overrides);
+  });
+
+  it("preserves an explicitly edited weekday after it collides with a later default", () => {
+    const protectedWeekdays = new Set(["tuesday", "saturday"] as const);
+    const original = goal({ targetMinutes: 30, schedule: createDefaultSchedule(30) });
+    getGoalSchedule(original).tuesday.targetMinutes = 60;
+    getGoalSchedule(original).saturday = { enabled: false, targetMinutes: 60 };
+
+    const sixty = updateDefaultTarget(original, 60, protectedWeekdays);
+    const ninety = updateDefaultTarget(sixty, 90, protectedWeekdays);
+
+    expect(getGoalSchedule(ninety).monday.targetMinutes).toBe(90);
+    expect(getGoalSchedule(ninety).tuesday.targetMinutes).toBe(60);
+    expect(getGoalSchedule(ninety).saturday).toEqual({ enabled: false, targetMinutes: 60 });
+  });
+
+  it("propagates from the last valid default after invalid raw input", () => {
+    const original = goal({ targetMinutes: 30, schedule: createDefaultSchedule(30) });
+
+    expect(parseDefaultTargetInput("0")).toBeUndefined();
+    expect(original.targetMinutes).toBe(30);
+    expect(getGoalSchedule(original).monday.targetMinutes).toBe(30);
+
+    const sixty = updateDefaultTarget(original, parseDefaultTargetInput("60") ?? 0);
+    expect(sixty.targetMinutes).toBe(60);
+    expect(getGoalSchedule(sixty).monday.targetMinutes).toBe(60);
+
+    expect(parseDefaultTargetInput("")).toBeUndefined();
+    const ninety = updateDefaultTarget(sixty, parseDefaultTargetInput("90") ?? 0);
+    expect(ninety.targetMinutes).toBe(90);
+    expect(getGoalSchedule(ninety).monday.targetMinutes).toBe(90);
+  });
+
+  it("resets custom targets to the default and makes them inherited again", () => {
+    const protectedWeekdays = new Set(["tuesday"] as const);
+    const schedule = createDefaultSchedule(30);
+    schedule.tuesday.targetMinutes = 45;
+    schedule.saturday.enabled = false;
+    const original = goal({ targetMinutes: 30, schedule });
+
+    const reset = applyDefaultTargetToAllDays(original);
+    protectedWeekdays.clear();
+    const updated = updateDefaultTarget(reset, 60, protectedWeekdays);
+
+    expect(getGoalSchedule(reset).tuesday.targetMinutes).toBe(30);
+    expect(getGoalSchedule(updated).tuesday.targetMinutes).toBe(60);
+    expect(getGoalSchedule(updated).saturday).toEqual({ enabled: false, targetMinutes: 60 });
+    expect(updated.overrides).toBe(original.overrides);
+
+    getGoalSchedule(updated).tuesday.targetMinutes = 45;
+    protectedWeekdays.add("tuesday");
+    const customized = updateDefaultTarget(updated, 90, protectedWeekdays);
+    expect(getGoalSchedule(customized).monday.targetMinutes).toBe(90);
+    expect(getGoalSchedule(customized).tuesday.targetMinutes).toBe(45);
   });
 
   it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])(
