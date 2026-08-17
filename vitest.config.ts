@@ -30,6 +30,12 @@ export default defineConfig({
           functions: 90,
           branches: 85
         },
+        "src/weekly-progress.ts": {
+          lines: 100,
+          statements: 100,
+          functions: 100,
+          branches: 100
+        },
         "src/{activity-watch-buckets,data,date,matcher,models}.ts": {
           lines: 75,
           statements: 75,

@@ -23,6 +23,7 @@ import { GoalDetailsModal } from "./goal-details";
 import type DailyHubPlugin from "./main";
 import type { ActivityWatchSnapshot, ActivityWatchStatus, DailyGoal, GoalProgress } from "./models";
 import { calculateDailyProgress } from "./progress";
+import { calculateGoalWeekStats, calculateWeekProgress, type WeekDayActivity } from "./weekly-progress";
 
 export const DAILY_HUB_VIEW_TYPE = "daily-hub-view";
 const ACTIVITYWATCH_DOWNLOAD_URL = "https://activitywatch.net/downloads/";
@@ -105,23 +106,29 @@ export class DailyHubView extends ItemView {
       selectedSnapshot?.activity ?? { windowEvents: [], browserEvents: [], afkEvents: [] },
       this.selectedDateKey
     );
-    const week = weekDates.map((date): WeekDayData => {
+    const weekActivity = weekDates.map((date): WeekDayActivity => {
       const key = toLocalDateKey(date);
       const future = isFutureDate(key, today);
       const snapshot = snapshots.get(key);
       return {
-        key,
-        date,
+        dateKey: key,
         future,
-        progress: future || snapshot === undefined || snapshot.status.kind === "offline"
+        activity: future || snapshot === undefined || snapshot.status.kind === "offline"
           ? undefined
-          : calculateDailyProgress(this.plugin.data.goals, snapshot.activity, key)
+          : snapshot.activity
       };
     });
+    const weekProgress = calculateWeekProgress(this.plugin.data.goals, weekActivity);
+    const week = weekProgress.map((day): WeekDayData => ({
+      key: day.dateKey,
+      date: getLocalDateRange(day.dateKey).start,
+      future: day.future,
+      progress: day.progress
+    }));
 
     const weeklyAnalytics = summarizeWeek(
       this.plugin.data.goals,
-      week.map((day) => ({ dateKey: day.key, future: day.future, progress: day.progress })),
+      weekProgress,
       this.selectedDateKey
     );
 
@@ -471,10 +478,9 @@ export class DailyHubView extends ItemView {
       const selectedDateKey = this.selectedDateKey;
       new GoalDetailsModal(
         this.plugin,
-        goal,
         selectedDateKey,
         week,
-        (force) => this.loadGoalWeekStats(goal, selectedDateKey, force)
+        (force) => this.loadGoalWeekStats(goal.id, selectedDateKey, force)
       ).open();
     });
     const edit = actions.createEl("button", {
@@ -518,7 +524,7 @@ export class DailyHubView extends ItemView {
   }
 
   private async loadGoalWeekStats(
-    goal: DailyGoal,
+    goalId: string,
     selectedDateKey: string,
     force: boolean
   ): Promise<GoalWeekStats> {
@@ -532,19 +538,24 @@ export class DailyHubView extends ItemView {
       const key = keys[index];
       if (key !== undefined && result.status === "fulfilled") snapshots.set(key, result.value);
     });
-    const days = weekDates.map((date) => {
+    const days = weekDates.map((date): WeekDayActivity => {
       const dateKey = toLocalDateKey(date);
       const future = isFutureDate(dateKey, today);
       const snapshot = snapshots.get(dateKey);
       return {
         dateKey,
         future,
-        progress: future || snapshot === undefined || snapshot.status.kind === "offline"
+        activity: future || snapshot === undefined || snapshot.status.kind === "offline"
           ? undefined
-          : calculateDailyProgress([goal], snapshot.activity, dateKey)
+          : snapshot.activity
       };
     });
-    const stats = summarizeWeek([goal], days, selectedDateKey).goals[0];
+    const stats = calculateGoalWeekStats(
+      this.plugin.data.goals,
+      goalId,
+      days,
+      selectedDateKey
+    );
     if (stats === undefined) throw new Error("Goal details are unavailable");
     return stats;
   }

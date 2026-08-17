@@ -2,7 +2,6 @@ import { Modal, setIcon } from "obsidian";
 import { formatDuration, formatRemainingDuration, type GoalWeekStats } from "./dashboard";
 import { getLocalDateRange, isToday } from "./date";
 import type DailyHubPlugin from "./main";
-import type { DailyGoal } from "./models";
 
 type GoalStatsLoader = (force: boolean) => Promise<GoalWeekStats>;
 
@@ -11,7 +10,6 @@ export class GoalDetailsModal extends Modal {
 
   constructor(
     plugin: DailyHubPlugin,
-    private readonly goal: DailyGoal,
     private readonly selectedDateKey: string,
     initialStats: GoalWeekStats,
     private readonly loadStats: GoalStatsLoader
@@ -21,7 +19,6 @@ export class GoalDetailsModal extends Modal {
   }
 
   override onOpen(): void {
-    this.titleEl.setText(this.goal.name);
     this.render();
   }
 
@@ -33,12 +30,13 @@ export class GoalDetailsModal extends Modal {
     const container = this.contentEl;
     container.empty();
     container.addClass("daily-hub-goal-details");
+    this.titleEl.setText(this.stats.goalName);
 
     const toolbar = container.createDiv({ cls: "daily-hub-details-toolbar" });
     toolbar.createEl("span", { text: this.weekLabel(), cls: "daily-hub-muted" });
     const refresh = toolbar.createEl("button", {
       cls: "daily-hub-icon-button",
-      attr: { "aria-label": `Refresh ${this.goal.name} details`, title: "Refresh details" }
+      attr: { "aria-label": `Refresh ${this.stats.goalName} details`, title: "Refresh details" }
     });
     setIcon(refresh, "refresh-cw");
     refresh.addEventListener("click", () => { void this.refresh(refresh); });
@@ -60,10 +58,10 @@ export class GoalDetailsModal extends Modal {
     } else {
       const minutes = Math.floor(selectedDay.activeSeconds / 60);
       selected.createEl("strong", {
-        text: `${minutes} / ${this.goal.targetMinutes} min`,
+        text: `${minutes} / ${this.stats.targetMinutes} min`,
         cls: "daily-hub-details-value"
       });
-      const remainingSeconds = Math.max(this.goal.targetMinutes * 60 - selectedDay.activeSeconds, 0);
+      const remainingSeconds = Math.max(this.stats.targetMinutes * 60 - selectedDay.activeSeconds, 0);
       selected.createEl("div", {
         text: selectedDay.completed === true
           ? "Goal complete ✓"
