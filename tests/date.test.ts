@@ -3,6 +3,7 @@ import {
   addLocalDays,
   getDateNavigator,
   getLocalDateRange,
+  getTrailingLocalDates,
   getLocalWeek,
   isFutureDate,
   isToday,
@@ -64,5 +65,24 @@ describe("local date helpers", () => {
     expect(toLocalDateKey(addLocalDays(spring.start, 1))).toBe("2026-03-09");
     expect((spring.end.getTime() - spring.start.getTime()) / 3_600_000).toBe(23);
     expect((fall.end.getTime() - fall.start.getTime()) / 3_600_000).toBe(25);
+  });
+
+  it("generates exactly 30 trailing local calendar days across boundaries and DST", () => {
+    process.env.TZ = "America/New_York";
+    const august = getTrailingLocalDates("2026-08-17", 30).map(toLocalDateKey);
+    expect(august).toHaveLength(30);
+    expect(august[0]).toBe("2026-07-19");
+    expect(august.at(-1)).toBe("2026-08-17");
+    expect(august).not.toContain("2026-07-18");
+
+    const january = getTrailingLocalDates("2026-01-10", 30).map(toLocalDateKey);
+    expect(january[0]).toBe("2025-12-12");
+    expect(january.at(-1)).toBe("2026-01-10");
+
+    const dst = getTrailingLocalDates("2026-03-20", 30);
+    expect(dst.map(toLocalDateKey)).toHaveLength(30);
+    expect(dst.some((date, index) => index > 0 && date.getTime() - (dst[index - 1]?.getTime() ?? 0) !== 86_400_000))
+      .toBe(true);
+    expect(() => getTrailingLocalDates("2026-08-17", 0)).toThrow("positive integer");
   });
 });

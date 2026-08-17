@@ -1,5 +1,11 @@
 import { ItemView, setIcon, type WorkspaceLeaf } from "obsidian";
 import {
+  calculateRangeAnalytics,
+  getHeatmapLevel,
+  type GoalRangeStats,
+  type RangeAnalytics
+} from "./analytics";
+import {
   formatDuration,
   formatRemainingDuration,
   getRemainingGoals,
@@ -14,20 +20,25 @@ import {
   getDateNavigator,
   getLocalDateRange,
   getLocalWeek,
+  getTrailingLocalDates,
   isFutureDate,
   isToday,
   toLocalDateKey
 } from "./date";
 import { GoalEditorModal } from "./goal-editor";
-import { GoalDetailsModal } from "./goal-details";
+import { GoalDetailsModal, type GoalDetailsStats } from "./goal-details";
 import type DailyHubPlugin from "./main";
 import type { ActivityWatchSnapshot, ActivityWatchStatus, DailyGoal, GoalProgress } from "./models";
 import { calculateDailyProgress } from "./progress";
+import { loadDateRange } from "./range-loader";
+import { calculateRangeProgress, type DayActivityInput } from "./range-progress";
 import { calculateGoalWeekStats, calculateWeekProgress, type WeekDayActivity } from "./weekly-progress";
 
 export const DAILY_HUB_VIEW_TYPE = "daily-hub-view";
 const ACTIVITYWATCH_DOWNLOAD_URL = "https://activitywatch.net/downloads/";
 const BROWSER_WATCHER_URL = "https://docs.activitywatch.net/en/latest/watchers.html#web-browser";
+const LONG_TERM_DAYS = 30;
+const RANGE_LOAD_CONCURRENCY = 6;
 const OFFLINE_STATUS: ActivityWatchStatus = {
   kind: "offline",
   windowWatcherAvailable: false,
@@ -49,6 +60,11 @@ export class DailyHubView extends ItemView {
   private selectedDateKey = toLocalDateKey(new Date());
   private hasRendered = false;
   private refreshButton: HTMLButtonElement | undefined;
+  private longTermDays: DayActivityInput[] | undefined;
+  private longTermEndKey: string | undefined;
+  private longTermUrl: string | undefined;
+  private longTermLoad: Promise<DayActivityInput[]> | undefined;
+  private longTermSection: HTMLElement | undefined;
 
   constructor(leaf: WorkspaceLeaf, plugin: DailyHubPlugin) {
     super(leaf);
@@ -98,6 +114,7 @@ export class DailyHubView extends ItemView {
       const key = keys[index];
       if (key !== undefined && result.status === "fulfilled") snapshots.set(key, result.value);
     });
+    this.updateLongTermSnapshots(todayKey, snapshots);
 
     const selectedFuture = isFutureDate(this.selectedDateKey, today);
     const selectedSnapshot = selectedFuture ? undefined : snapshots.get(this.selectedDateKey);
@@ -146,6 +163,12 @@ export class DailyHubView extends ItemView {
       selectedSnapshot?.status.kind === "connected"
     );
     this.hasRendered = true;
+
+    if (this.plugin.data.goals.some((goal) => goal.enabled)) {
+      void this.ensureLongTermActivity(todayKey).then(() => {
+        if (todayKey === toLocalDateKey(new Date())) this.renderLongTermContent(today);
+      });
+    }
 
     const todaySnapshot = snapshots.get(todayKey);
     if (todaySnapshot !== undefined) {
@@ -258,6 +281,8 @@ export class DailyHubView extends ItemView {
     }
 
     this.renderWeek(container, week, weeklyAnalytics);
+    this.longTermSection = container.createDiv({ cls: "daily-hub-long-term" });
+    this.renderLongTermContent(today);
   }
 
   private renderDateNavigator(container: HTMLElement, today: Date): void {
@@ -395,6 +420,188 @@ export class DailyHubView extends ItemView {
     this.renderGoalBreakdown(section, analytics.goals);
   }
 
+  private renderLongTermContent(today: Date): void {
+    const section = this.longTermSection;
+    if (section === undefined) return;
+    section.empty();
+    section.createEl("h2", { text: "Last 30 days", cls: "daily-hub-section-title" });
+    section.createEl("div", { text: "Ending Today", cls: "daily-hub-kicker" });
+
+    const enabledGoals = this.plugin.data.goals.filter((goal) => goal.enabled);
+    if (enabledGoals.length === 0) {
+      section.createEl("p", { text: "Add goals to see long-term analytics.", cls: "daily-hub-muted" });
+      return;
+    }
+
+    const analytics = this.getLongTermAnalytics(toLocalDateKey(today));
+    if (analytics === undefined) {
+      section.createEl("p", { text: "Loading analytics…", cls: "daily-hub-muted", attr: { role: "status" } });
+      return;
+    }
+    if (analytics.availableDays === 0) {
+      section.createEl("p", { text: "30-day analytics unavailable", cls: "daily-hub-muted", attr: { role: "status" } });
+      this.renderHeatmap(section, analytics);
+      return;
+    }
+
+    const summary = section.createDiv({
+      cls: "daily-hub-long-term-summary",
+      attr: { "aria-label": "Last 30 days summary" }
+    });
+    this.renderLongTermMetric(summary, formatDuration(analytics.totalSeconds), "studied");
+    this.renderLongTermMetric(
+      summary,
+      analytics.averageSeconds === undefined ? "—" : formatDuration(analytics.averageSeconds),
+      "daily average"
+    );
+    this.renderLongTermMetric(summary, String(analytics.activeDays), "active days");
+    this.renderLongTermMetric(
+      summary,
+      analytics.completionRate === undefined ? "—" : `${Math.round(analytics.completionRate * 100)}%`,
+      "goal completion"
+    );
+
+    if (analytics.availableDays < LONG_TERM_DAYS) {
+      section.createEl("p", {
+        text: `Partial data: ${analytics.availableDays} of ${LONG_TERM_DAYS} days available`,
+        cls: "daily-hub-muted"
+      });
+    }
+
+    this.renderHeatmap(section, analytics);
+    this.renderGoalConsistency(section, analytics.goals);
+  }
+
+  private renderLongTermMetric(container: HTMLElement, value: string, label: string): void {
+    const metric = container.createDiv({ cls: "daily-hub-summary-item" });
+    metric.createEl("strong", { text: value });
+    metric.createEl("span", { text: label });
+  }
+
+  private renderHeatmap(container: HTMLElement, analytics: RangeAnalytics): void {
+    container.createEl("h3", { text: "Daily completion", cls: "daily-hub-subsection-title" });
+    const scroll = container.createDiv({ cls: "daily-hub-heatmap-scroll" });
+    const heatmap = scroll.createDiv({ cls: "daily-hub-heatmap", attr: { "aria-label": "30-day goal completion heatmap" } });
+    for (const day of analytics.days) {
+      const date = getLocalDateRange(day.dateKey).start;
+      const dateLabel = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date);
+      const selected = day.dateKey === this.selectedDateKey;
+      const available = day.available && day.progressRatio !== undefined;
+      const details = available
+        ? `${formatDuration(day.totalSeconds ?? 0)} studied, ${day.completedGoals ?? 0} of ${day.goalCount ?? 0} goals completed, ${Math.round((day.progressRatio ?? 0) * 100)}% planned progress`
+        : "Activity data unavailable";
+      const label = `${dateLabel}: ${details}`;
+      const button = heatmap.createEl("button", {
+        text: available ? "" : "—",
+        cls: `daily-hub-heatmap-cell${available ? ` is-level-${getHeatmapLevel(day.progressRatio ?? 0)}` : " is-unavailable"}${selected ? " is-selected" : ""}`,
+        attr: {
+          "aria-label": label,
+          title: label,
+          ...(selected ? { "aria-current": "date" } : {})
+        }
+      });
+      button.disabled = !available;
+      if (available) button.addEventListener("click", () => this.selectDate(day.dateKey));
+    }
+  }
+
+  private renderGoalConsistency(container: HTMLElement, goals: GoalRangeStats[]): void {
+    container.createEl("h3", { text: "Goal consistency", cls: "daily-hub-subsection-title" });
+    const list = container.createDiv({ cls: "daily-hub-consistency" });
+    for (const goal of goals) {
+      const card = list.createDiv({ cls: "daily-hub-consistency-card" });
+      const heading = card.createDiv({ cls: "daily-hub-consistency-heading" });
+      heading.createEl("strong", { text: goal.goalName });
+      heading.createEl("span", { text: formatDuration(goal.totalSeconds), cls: "daily-hub-muted" });
+      card.createEl("div", {
+        text: `${goal.completedDays} / ${goal.availableDays} days completed`,
+        cls: "daily-hub-consistency-completion"
+      });
+      card.createEl("div", {
+        text: `Current streak ${goal.currentStreak} days · Best ${goal.bestStreak} days`,
+        cls: "daily-hub-muted"
+      });
+    }
+  }
+
+  private getLongTermAnalytics(todayKey: string): RangeAnalytics | undefined {
+    if (
+      this.longTermDays === undefined
+      || this.longTermEndKey !== todayKey
+      || this.longTermUrl !== this.plugin.data.settings.activityWatchUrl
+    ) return undefined;
+    return calculateRangeAnalytics(
+      this.plugin.data.goals,
+      calculateRangeProgress(this.plugin.data.goals, this.longTermDays)
+    );
+  }
+
+  private updateLongTermSnapshots(
+    todayKey: string,
+    snapshots: Map<string, ActivityWatchSnapshot>
+  ): void {
+    if (
+      this.longTermDays === undefined
+      || this.longTermEndKey !== todayKey
+      || this.longTermUrl !== this.plugin.data.settings.activityWatchUrl
+    ) return;
+    this.longTermDays = this.longTermDays.map((day) => {
+      const snapshot = snapshots.get(day.dateKey);
+      return snapshot === undefined
+        ? day
+        : {
+            dateKey: day.dateKey,
+            future: false,
+            activity: snapshot.status.kind === "connected" ? snapshot.activity : undefined
+          };
+    });
+  }
+
+  private mergeLongTermActivity(days: DayActivityInput[]): void {
+    if (this.longTermDays === undefined) return;
+    const updates = new Map(days.filter((day) => !day.future).map((day) => [day.dateKey, day.activity]));
+    this.longTermDays = this.longTermDays.map((day) => updates.has(day.dateKey)
+      ? { ...day, activity: updates.get(day.dateKey) }
+      : day);
+  }
+
+  private ensureLongTermActivity(todayKey: string): Promise<DayActivityInput[]> {
+    const activityWatchUrl = this.plugin.data.settings.activityWatchUrl;
+    if (
+      this.longTermDays !== undefined
+      && this.longTermEndKey === todayKey
+      && this.longTermUrl === activityWatchUrl
+    ) return Promise.resolve(this.longTermDays);
+    if (
+      this.longTermLoad !== undefined
+      && this.longTermEndKey === todayKey
+      && this.longTermUrl === activityWatchUrl
+    ) return this.longTermLoad;
+
+    this.longTermEndKey = todayKey;
+    this.longTermUrl = activityWatchUrl;
+    this.longTermDays = undefined;
+    const keys = getTrailingLocalDates(todayKey, LONG_TERM_DAYS).map(toLocalDateKey);
+    const promise = loadDateRange(
+      keys,
+      (dateKey) => this.plugin.getActivitySnapshot(dateKey),
+      RANGE_LOAD_CONCURRENCY
+    ).then((results) => results.map((result): DayActivityInput => ({
+      dateKey: result.dateKey,
+      future: false,
+      activity: result.value?.status.kind === "connected" ? result.value.activity : undefined
+    })));
+    this.longTermLoad = promise;
+    void promise.then((days) => {
+      if (this.longTermEndKey === todayKey && this.longTermUrl === activityWatchUrl) {
+        this.longTermDays = days;
+      }
+    }).finally(() => {
+      if (this.longTermLoad === promise) this.longTermLoad = undefined;
+    });
+    return promise;
+  }
+
   private renderGoalBreakdown(container: HTMLElement, goals: GoalWeekStats[]): void {
     container.createEl("h3", { text: "Goal breakdown", cls: "daily-hub-subsection-title" });
     const breakdown = container.createDiv({ cls: "daily-hub-goal-breakdown" });
@@ -479,8 +686,12 @@ export class DailyHubView extends ItemView {
       new GoalDetailsModal(
         this.plugin,
         selectedDateKey,
-        week,
-        (force) => this.loadGoalWeekStats(goal.id, selectedDateKey, force)
+        {
+          week,
+          range: this.getLongTermAnalytics(toLocalDateKey(new Date()))?.goals
+            .find((item) => item.goalId === goal.id)
+        },
+        (force) => this.loadGoalDetailsStats(goal.id, selectedDateKey, force)
       ).open();
     });
     const edit = actions.createEl("button", {
@@ -550,6 +761,7 @@ export class DailyHubView extends ItemView {
           : snapshot.activity
       };
     });
+    this.mergeLongTermActivity(days);
     const stats = calculateGoalWeekStats(
       this.plugin.data.goals,
       goalId,
@@ -558,5 +770,19 @@ export class DailyHubView extends ItemView {
     );
     if (stats === undefined) throw new Error("Goal details are unavailable");
     return stats;
+  }
+
+  private async loadGoalDetailsStats(
+    goalId: string,
+    selectedDateKey: string,
+    force: boolean
+  ): Promise<GoalDetailsStats> {
+    const todayKey = toLocalDateKey(new Date());
+    const [week] = await Promise.all([
+      this.loadGoalWeekStats(goalId, selectedDateKey, force),
+      this.ensureLongTermActivity(todayKey)
+    ]);
+    const range = this.getLongTermAnalytics(todayKey)?.goals.find((goal) => goal.goalId === goalId);
+    return { week, range };
   }
 }

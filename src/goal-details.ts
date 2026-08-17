@@ -1,17 +1,23 @@
 import { Modal, setIcon } from "obsidian";
+import type { GoalRangeStats } from "./analytics";
 import { formatDuration, formatRemainingDuration, type GoalWeekStats } from "./dashboard";
 import { getLocalDateRange, isToday } from "./date";
 import type DailyHubPlugin from "./main";
 
-type GoalStatsLoader = (force: boolean) => Promise<GoalWeekStats>;
+export interface GoalDetailsStats {
+  week: GoalWeekStats;
+  range: GoalRangeStats | undefined;
+}
+
+type GoalStatsLoader = (force: boolean) => Promise<GoalDetailsStats>;
 
 export class GoalDetailsModal extends Modal {
-  private stats: GoalWeekStats;
+  private stats: GoalDetailsStats;
 
   constructor(
     plugin: DailyHubPlugin,
     private readonly selectedDateKey: string,
-    initialStats: GoalWeekStats,
+    initialStats: GoalDetailsStats,
     private readonly loadStats: GoalStatsLoader
   ) {
     super(plugin.app);
@@ -20,6 +26,7 @@ export class GoalDetailsModal extends Modal {
 
   override onOpen(): void {
     this.render();
+    if (this.stats.range === undefined) void this.refresh(undefined, false);
   }
 
   override onClose(): void {
@@ -30,16 +37,17 @@ export class GoalDetailsModal extends Modal {
     const container = this.contentEl;
     container.empty();
     container.addClass("daily-hub-goal-details");
-    this.titleEl.setText(this.stats.goalName);
+    const week = this.stats.week;
+    this.titleEl.setText(week.goalName);
 
     const toolbar = container.createDiv({ cls: "daily-hub-details-toolbar" });
     toolbar.createEl("span", { text: this.weekLabel(), cls: "daily-hub-muted" });
     const refresh = toolbar.createEl("button", {
       cls: "daily-hub-icon-button",
-      attr: { "aria-label": `Refresh ${this.stats.goalName} details`, title: "Refresh details" }
+      attr: { "aria-label": `Refresh ${week.goalName} details`, title: "Refresh details" }
     });
     setIcon(refresh, "refresh-cw");
-    refresh.addEventListener("click", () => { void this.refresh(refresh); });
+    refresh.addEventListener("click", () => { void this.refresh(refresh, true); });
 
     if (error !== undefined) {
       container.createEl("p", { text: error, cls: "daily-hub-warning", attr: { role: "status" } });
@@ -52,16 +60,16 @@ export class GoalDetailsModal extends Modal {
         .format(getLocalDateRange(this.selectedDateKey).start),
       cls: "daily-hub-muted"
     });
-    const selectedDay = this.stats.selectedDay;
+    const selectedDay = week.selectedDay;
     if (selectedDay?.available !== true || selectedDay.activeSeconds === undefined) {
       selected.createEl("strong", { text: "—", cls: "daily-hub-details-value" });
     } else {
       const minutes = Math.floor(selectedDay.activeSeconds / 60);
       selected.createEl("strong", {
-        text: `${minutes} / ${this.stats.targetMinutes} min`,
+        text: `${minutes} / ${week.targetMinutes} min`,
         cls: "daily-hub-details-value"
       });
-      const remainingSeconds = Math.max(this.stats.targetMinutes * 60 - selectedDay.activeSeconds, 0);
+      const remainingSeconds = Math.max(week.targetMinutes * 60 - selectedDay.activeSeconds, 0);
       selected.createEl("div", {
         text: selectedDay.completed === true
           ? "Goal complete ✓"
@@ -73,13 +81,15 @@ export class GoalDetailsModal extends Modal {
     const weekly = container.createDiv({ cls: "daily-hub-details-weekly" });
     const total = weekly.createDiv();
     total.createEl("span", { text: "This week", cls: "daily-hub-muted" });
-    total.createEl("strong", { text: formatDuration(this.stats.totalSeconds) });
+    total.createEl("strong", { text: formatDuration(week.totalSeconds) });
     const completion = weekly.createDiv();
     completion.createEl("span", { text: "Completed on", cls: "daily-hub-muted" });
-    completion.createEl("strong", { text: `${this.stats.completedDays} / ${this.stats.trackedDays} elapsed days` });
+    completion.createEl("strong", { text: `${week.completedDays} / ${week.trackedDays} elapsed days` });
+
+    this.renderRange(container);
 
     const days = container.createDiv({ cls: "daily-hub-details-days" });
-    for (const day of this.stats.days) {
+    for (const day of week.days) {
       const row = days.createDiv({ cls: "daily-hub-details-day" });
       row.createEl("span", {
         text: new Intl.DateTimeFormat(undefined, { weekday: "short" })
@@ -96,11 +106,40 @@ export class GoalDetailsModal extends Modal {
     }
   }
 
-  private async refresh(button: HTMLButtonElement): Promise<void> {
-    button.disabled = true;
-    button.addClass("is-loading");
+  private renderRange(container: HTMLElement): void {
+    const section = container.createDiv({ cls: "daily-hub-details-range" });
+    section.createEl("h3", { text: "Last 30 days" });
+    const range = this.stats.range;
+    if (range === undefined) {
+      section.createEl("p", { text: "Loading analytics…", cls: "daily-hub-muted", attr: { role: "status" } });
+      return;
+    }
+
+    const metrics = section.createDiv({ cls: "daily-hub-details-range-grid" });
+    const values: [string, string][] = [
+      ["Total", formatDuration(range.totalSeconds)],
+      ["Completed days", `${range.completedDays} / ${range.availableDays}`],
+      ["Completion rate", range.completionRate === undefined ? "—" : `${Math.round(range.completionRate * 100)}%`],
+      ["Current streak", `${range.currentStreak} days`],
+      ["Best streak", `${range.bestStreak} days`]
+    ];
+    for (const [label, value] of values) {
+      const metric = metrics.createDiv();
+      metric.createEl("span", { text: label, cls: "daily-hub-muted" });
+      metric.createEl("strong", { text: value });
+    }
+    if (range.streakMayBeIncomplete) {
+      section.createEl("p", { text: "Streaks may be incomplete because some activity data is unavailable.", cls: "daily-hub-muted" });
+    }
+  }
+
+  private async refresh(button: HTMLButtonElement | undefined, force: boolean): Promise<void> {
+    if (button !== undefined) {
+      button.disabled = true;
+      button.addClass("is-loading");
+    }
     try {
-      this.stats = await this.loadStats(true);
+      this.stats = await this.loadStats(force);
       this.render();
     } catch {
       this.render("Could not refresh goal details");
@@ -108,8 +147,8 @@ export class GoalDetailsModal extends Modal {
   }
 
   private weekLabel(): string {
-    const first = this.stats.days[0];
-    const last = this.stats.days[this.stats.days.length - 1];
+    const first = this.stats.week.days[0];
+    const last = this.stats.week.days[this.stats.week.days.length - 1];
     if (first === undefined || last === undefined) return "Selected week";
     const formatter = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
     return `${formatter.format(getLocalDateRange(first.dateKey).start)}–${formatter.format(

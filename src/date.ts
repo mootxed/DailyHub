@@ -75,3 +75,8 @@ export function getLocalWeek(date: Date | string): Date[] {
   const monday = addLocalDays(selected, -mondayOffset);
   return Array.from({ length: 7 }, (_, index) => addLocalDays(monday, index));
 }
+
+export function getTrailingLocalDates(date: Date | string, count: number): Date[] {
+  if (!Number.isInteger(count) || count < 1) throw new Error("Date count must be a positive integer");
+  return Array.from({ length: count }, (_, index) => addLocalDays(date, index - count + 1));
+}

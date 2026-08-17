@@ -1,24 +1,17 @@
 import { summarizeWeek, type GoalWeekStats, type WeekDayProgress } from "./dashboard";
-import type { DailyGoal, DayActivity } from "./models";
-import { calculateDailyProgress } from "./progress";
+import type { DailyGoal } from "./models";
+import {
+  calculateRangeProgress,
+  type DayActivityInput
+} from "./range-progress";
 
-export interface WeekDayActivity {
-  dateKey: string;
-  future: boolean;
-  activity: DayActivity | undefined;
-}
+export type WeekDayActivity = DayActivityInput;
 
 export function calculateWeekProgress(
   goals: DailyGoal[],
   days: WeekDayActivity[]
 ): WeekDayProgress[] {
-  return days.map((day) => ({
-    dateKey: day.dateKey,
-    future: day.future,
-    progress: day.future || day.activity === undefined
-      ? undefined
-      : calculateDailyProgress(goals, day.activity, day.dateKey)
-  }));
+  return calculateRangeProgress(goals, days);
 }
 
 export function calculateGoalWeekStats(

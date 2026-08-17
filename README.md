@@ -11,7 +11,10 @@ Daily Hub is a desktop [Obsidian](https://obsidian.md/) community plugin that tr
 - A seven-day navigator with a persistent Today shortcut when another date is selected.
 - A daily summary with total studied time and enabled-goal completion count.
 - A clickable Monday–Sunday overview with weekly total, elapsed-day average, completion count, and per-goal breakdown.
-- Goal details for the selected week, including daily totals and completed-day count.
+- A non-blocking **Last 30 days** section ending Today, with total study time, available-day average, active days, and goal completion rate.
+- An accessible 30-day completion heatmap; select any available cell to open that day and its week without moving the analytics window away from Today.
+- Per-goal 30-day consistency, completed-day counts, current and best streaks.
+- Goal details for the selected week plus a compact 30-day total, completion, and streak summary.
 - Unlimited daily goals with a minimum number of minutes.
 - Case-insensitive `contains` and `equals` primary/continuation rules for URL, application, and window title.
 - OR matching within each rule group and deterministic single-goal attribution if goals overlap.
@@ -135,9 +138,13 @@ For passive activities such as video lessons, a specific Primary rule can enable
 
 ActivityWatch remains the source of truth. Daily Hub requests the selected local-day range, clips and sorts events, combines a browser URL only with its corresponding active browser window, applies rule-aware AFK exclusion, matches timeline segments to enabled goals, and computes progress on demand. Context is reconstructed from that timeline for every calculation and is not stored in plugin data. It prefers the current ActivityWatch hostname and the newest duplicate bucket for each source. It does not duplicate raw ActivityWatch history into the vault.
 
-Weekly days load in parallel. In-memory snapshots are keyed by ActivityWatch URL and local date: today's and failed entries expire quickly, while successful historical entries remain cached for the plugin session. Refresh invalidates the selected week, selected date, and Today. No raw history or derived weekly database is written to the vault.
+Weekly days load first so the dashboard is usable immediately. The 30-day section then loads asynchronously through a six-worker pool instead of sending 30 uncontrolled requests. In-memory snapshots are keyed by ActivityWatch URL and local date, so days already fetched for Today or the selected week are reused. Duplicate pending requests are coalesced; today's and failed entries expire quickly, while successful historical entries remain cached for the plugin session. Refresh invalidates the selected week, selected date, and Today, then updates affected 30-day values without refetching every successful historical day. No raw history or derived analytics database is written to the vault.
 
-Historical totals always use the current goal configuration. Changing a rule, target, or enabled state can therefore change the recalculated result for an older day; Daily Hub does not keep versioned goal history yet.
+Heatmap intensity is the average capped completion ratio of all enabled goals for that day, not raw minutes. An unavailable ActivityWatch day is displayed separately from a genuine zero-activity day and is excluded from averages, active-day counts, and completion opportunities. Partial ranges show how many of the 30 days are available.
+
+For each goal, a completed day means that its globally attributed time met the current target. If Today is complete, the current streak starts at Today; if Today is still incomplete, the streak starts at Yesterday so an unfinished day does not reset it in the morning. A past incomplete day breaks a streak. An unavailable day also breaks streak certainty rather than silently joining two runs. Best streak is the longest continuous completed run within the 30-day window.
+
+Historical totals, completion, and streaks always use the current goal configuration. Changing goal rules or targets can therefore change historical completion and streak calculations; Daily Hub does not keep versioned goal history yet.
 
 If two goals' primary rules accidentally match one segment, only the goal with the lexicographically smallest stable goal ID receives the time. This deterministic fallback prevents double-counting; rules are easiest to understand when they do not overlap.
 
@@ -145,7 +152,7 @@ If two goals' primary rules accidentally match one segment, only the goal with t
 
 - Context starts empty at midnight for each calculated local day; it is not carried across day boundaries.
 - No automatic ActivityWatch binary or browser-extension installation.
-- No manual timers, schedules, weekly/monthly goals, streaks, calendar integrations, or cloud sync.
+- No manual timers, schedules, weekly/monthly goals, calendar integrations, or cloud sync.
 - Changes to rules or targets recalculate the entire selected day from current ActivityWatch history and configuration.
 
 ## Manual smoke test
@@ -159,6 +166,9 @@ If two goals' primary rules accidentally match one segment, only the goal with t
 7. Switch to Terminal and confirm that Keybr time stops increasing.
 8. Return to Keybr, then provide no keyboard or mouse input for more than 60 seconds; confirm that the AFK interval is not counted.
 9. Resume activity in Keybr and confirm that counting continues.
+10. In **Last 30 days**, select Yesterday and confirm that the daily and weekly sections navigate while the range still ends Today.
+11. Resize the Daily Hub pane narrowly and confirm that the heatmap remains usable with horizontal scrolling.
+12. Stop ActivityWatch for a refresh and confirm that missing activity is shown as unavailable, not as a failed zero-progress day.
 
 ## License
 

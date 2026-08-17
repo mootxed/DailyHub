@@ -36,6 +36,24 @@ export default defineConfig({
           functions: 100,
           branches: 100
         },
+        "src/range-progress.ts": {
+          lines: 100,
+          statements: 100,
+          functions: 100,
+          branches: 100
+        },
+        "src/analytics.ts": {
+          lines: 95,
+          statements: 95,
+          functions: 95,
+          branches: 85
+        },
+        "src/range-loader.ts": {
+          lines: 95,
+          statements: 95,
+          functions: 95,
+          branches: 80
+        },
         "src/{activity-watch-buckets,data,date,matcher,models}.ts": {
           lines: 75,
           statements: 75,
