@@ -27,10 +27,10 @@ import {
 } from "./date";
 import { GoalEditorModal } from "./goal-editor";
 import { GoalDetailsModal, type GoalDetailsStats } from "./goal-details";
+import { LongTermActivityState } from "./long-term-state";
 import type DailyHubPlugin from "./main";
 import type { ActivityWatchSnapshot, ActivityWatchStatus, DailyGoal, GoalProgress } from "./models";
 import { calculateDailyProgress } from "./progress";
-import { loadDateRange } from "./range-loader";
 import { calculateRangeProgress, type DayActivityInput } from "./range-progress";
 import { calculateGoalWeekStats, calculateWeekProgress, type WeekDayActivity } from "./weekly-progress";
 
@@ -60,10 +60,7 @@ export class DailyHubView extends ItemView {
   private selectedDateKey = toLocalDateKey(new Date());
   private hasRendered = false;
   private refreshButton: HTMLButtonElement | undefined;
-  private longTermDays: DayActivityInput[] | undefined;
-  private longTermEndKey: string | undefined;
-  private longTermUrl: string | undefined;
-  private longTermLoad: Promise<DayActivityInput[]> | undefined;
+  private readonly longTermActivity = new LongTermActivityState();
   private longTermSection: HTMLElement | undefined;
 
   constructor(leaf: WorkspaceLeaf, plugin: DailyHubPlugin) {
@@ -525,14 +522,14 @@ export class DailyHubView extends ItemView {
   }
 
   private getLongTermAnalytics(todayKey: string): RangeAnalytics | undefined {
-    if (
-      this.longTermDays === undefined
-      || this.longTermEndKey !== todayKey
-      || this.longTermUrl !== this.plugin.data.settings.activityWatchUrl
-    ) return undefined;
+    const days = this.longTermActivity.get(
+      todayKey,
+      this.plugin.data.settings.activityWatchUrl
+    );
+    if (days === undefined) return undefined;
     return calculateRangeAnalytics(
       this.plugin.data.goals,
-      calculateRangeProgress(this.plugin.data.goals, this.longTermDays)
+      calculateRangeProgress(this.plugin.data.goals, days)
     );
   }
 
@@ -540,66 +537,41 @@ export class DailyHubView extends ItemView {
     todayKey: string,
     snapshots: Map<string, ActivityWatchSnapshot>
   ): void {
-    if (
-      this.longTermDays === undefined
-      || this.longTermEndKey !== todayKey
-      || this.longTermUrl !== this.plugin.data.settings.activityWatchUrl
-    ) return;
-    this.longTermDays = this.longTermDays.map((day) => {
+    const activityWatchUrl = this.plugin.data.settings.activityWatchUrl;
+    const days = this.longTermActivity.get(todayKey, activityWatchUrl);
+    if (days === undefined) return;
+    const updates = days.flatMap((day): DayActivityInput[] => {
       const snapshot = snapshots.get(day.dateKey);
-      return snapshot === undefined
-        ? day
-        : {
-            dateKey: day.dateKey,
-            future: false,
-            activity: snapshot.status.kind === "connected" ? snapshot.activity : undefined
-          };
+      return snapshot === undefined ? [] : [{
+        dateKey: day.dateKey,
+        future: false,
+        activity: snapshot.status.kind === "connected" ? snapshot.activity : undefined
+      }];
     });
+    this.longTermActivity.merge(todayKey, activityWatchUrl, updates);
   }
 
   private mergeLongTermActivity(days: DayActivityInput[]): void {
-    if (this.longTermDays === undefined) return;
-    const updates = new Map(days.filter((day) => !day.future).map((day) => [day.dateKey, day.activity]));
-    this.longTermDays = this.longTermDays.map((day) => updates.has(day.dateKey)
-      ? { ...day, activity: updates.get(day.dateKey) }
-      : day);
+    this.longTermActivity.merge(
+      toLocalDateKey(new Date()),
+      this.plugin.data.settings.activityWatchUrl,
+      days
+    );
   }
 
   private ensureLongTermActivity(todayKey: string): Promise<DayActivityInput[]> {
     const activityWatchUrl = this.plugin.data.settings.activityWatchUrl;
-    if (
-      this.longTermDays !== undefined
-      && this.longTermEndKey === todayKey
-      && this.longTermUrl === activityWatchUrl
-    ) return Promise.resolve(this.longTermDays);
-    if (
-      this.longTermLoad !== undefined
-      && this.longTermEndKey === todayKey
-      && this.longTermUrl === activityWatchUrl
-    ) return this.longTermLoad;
-
-    this.longTermEndKey = todayKey;
-    this.longTermUrl = activityWatchUrl;
-    this.longTermDays = undefined;
     const keys = getTrailingLocalDates(todayKey, LONG_TERM_DAYS).map(toLocalDateKey);
-    const promise = loadDateRange(
+    return this.longTermActivity.ensure(
       keys,
-      (dateKey) => this.plugin.getActivitySnapshot(dateKey),
+      todayKey,
+      activityWatchUrl,
+      async (dateKey) => {
+        const snapshot = await this.plugin.getActivitySnapshot(dateKey);
+        return snapshot.status.kind === "connected" ? snapshot.activity : undefined;
+      },
       RANGE_LOAD_CONCURRENCY
-    ).then((results) => results.map((result): DayActivityInput => ({
-      dateKey: result.dateKey,
-      future: false,
-      activity: result.value?.status.kind === "connected" ? result.value.activity : undefined
-    })));
-    this.longTermLoad = promise;
-    void promise.then((days) => {
-      if (this.longTermEndKey === todayKey && this.longTermUrl === activityWatchUrl) {
-        this.longTermDays = days;
-      }
-    }).finally(() => {
-      if (this.longTermLoad === promise) this.longTermLoad = undefined;
-    });
-    return promise;
+    );
   }
 
   private renderGoalBreakdown(container: HTMLElement, goals: GoalWeekStats[]): void {
@@ -778,10 +750,8 @@ export class DailyHubView extends ItemView {
     force: boolean
   ): Promise<GoalDetailsStats> {
     const todayKey = toLocalDateKey(new Date());
-    const [week] = await Promise.all([
-      this.loadGoalWeekStats(goalId, selectedDateKey, force),
-      this.ensureLongTermActivity(todayKey)
-    ]);
+    const week = await this.loadGoalWeekStats(goalId, selectedDateKey, force);
+    await this.ensureLongTermActivity(todayKey);
     const range = this.getLongTermAnalytics(todayKey)?.goals.find((goal) => goal.goalId === goalId);
     return { week, range };
   }
