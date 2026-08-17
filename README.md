@@ -7,15 +7,17 @@ Daily Hub is a desktop [Obsidian](https://obsidian.md/) community plugin that tr
 ## Dashboard
 
 - A dedicated **Daily Hub** view with live progress bars, remaining time, and above-target totals.
-- A **Remaining today** summary with each unfinished goal and the combined time left.
+- A schedule-aware **Today Plan** with every planned goal, completed states, total remaining time, and a stable next-goal suggestion.
 - A seven-day navigator with a persistent Today shortcut when another date is selected.
-- A daily summary with total studied time and enabled-goal completion count.
+- A daily summary with total studied time and scheduled-goal completion count.
 - A clickable Monday–Sunday overview with weekly total, elapsed-day average, completion count, and per-goal breakdown.
 - A non-blocking **Last 30 days** section ending Today, with total study time, available-day average, active days, and goal completion rate.
 - An accessible 30-day completion heatmap; select any available cell to open that day and its week without moving the analytics window away from Today.
 - Per-goal 30-day consistency, completed-day counts, current and best streaks.
 - Goal details for the selected week plus a compact 30-day total, completion, and streak summary.
 - Unlimited daily goals with a minimum number of minutes.
+- Per-goal Monday–Sunday schedules, rest days, and different weekday targets.
+- Per-date target overrides and skip overrides for today, historical dates, or future plans, with one-click reset to the recurring schedule.
 - Case-insensitive `contains` and `equals` primary/continuation rules for URL, application, and window title.
 - OR matching within each rule group and deterministic single-goal attribution if goals overlap.
 - ActivityWatch window, browser, and AFK event support.
@@ -26,6 +28,22 @@ Daily Hub is a desktop [Obsidian](https://obsidian.md/) community plugin that tr
 - On-demand historical recalculation from ActivityWatch for any selected local date.
 
 Reaching the minimum completes a goal but does not stop tracking. A 30-minute goal can show `43 / 30 min`, while its progress bar remains visually capped at 100%.
+
+## Weekly schedules and day plans
+
+Every goal keeps a default target and a Monday–Sunday schedule. For example:
+
+```text
+Mon–Fri  60 min
+Sat      30 min
+Sun      Rest
+```
+
+Use **Apply default target to all days** to initialize matching targets quickly, then turn individual days into rest days or adjust their minutes. A rest day is not an incomplete day: it creates no completion opportunity, contributes nothing to Remaining time, and does not break a streak.
+
+Use **Adjust this day** on a goal card to set a different target or skip that specific date. A date override has priority over the recurring weekday schedule. **Reset override** removes only that date's exception and restores the weekday schedule. A target override can make a normally resting day active; a skip override behaves like a rest day.
+
+Today Plan includes only scheduled goals in their configured order. Completed goals remain visible, while the total remaining time is the sum of `max(effective target − active time, 0)`. Future dates show planned targets without inventing activity. If a selected date has no scheduled goals, Daily Hub shows a neutral **No goals scheduled** state.
 
 ## Screenshot
 
@@ -140,11 +158,11 @@ ActivityWatch remains the source of truth. Daily Hub requests the selected local
 
 Weekly days load first so the dashboard is usable immediately. The 30-day section then loads asynchronously through a six-worker pool instead of sending 30 uncontrolled requests. In-memory snapshots are keyed by ActivityWatch URL and local date, so days already fetched for Today or the selected week are reused. Duplicate pending requests are coalesced; today's and failed entries expire quickly, while successful historical entries remain cached for the plugin session. Refresh invalidates the selected week, selected date, and Today, then updates affected 30-day values without refetching every successful historical day. No raw history or derived analytics database is written to the vault.
 
-Heatmap intensity is the average capped completion ratio of all enabled goals for that day, not raw minutes. An unavailable ActivityWatch day is displayed separately from a genuine zero-activity day and is excluded from averages, active-day counts, and completion opportunities. Partial ranges show how many of the 30 days are available.
+Heatmap intensity is the average capped completion ratio of the goals scheduled for that day, not raw minutes. Rest and skipped goals are excluded. A day with no scheduled goals has a neutral rest state rather than 0% failure. An unavailable ActivityWatch day is displayed separately from a genuine zero-activity day and is excluded from averages, active-day counts, and completion opportunities. Partial ranges show how many of the 30 days are available. The study-time average retains calendar-day semantics, while completion denominators count scheduled opportunities.
 
-For each goal, a completed day means that its globally attributed time met the current target. If Today is complete, the current streak starts at Today; if Today is still incomplete, the streak starts at Yesterday so an unfinished day does not reset it in the morning. A past incomplete day breaks a streak. An unavailable day also breaks streak certainty rather than silently joining two runs. Best streak is the longest continuous completed run within the 30-day window.
+For each goal, a completed scheduled day means that its globally attributed time met the effective target. Rest days and skip overrides are ignored when counting streaks, so `✓ · Rest · Rest · ✓` is a two-opportunity streak. If Today is scheduled and complete, the current streak starts at Today; if Today is still incomplete, the streak starts at the previous scheduled day so an unfinished day does not reset it in the morning. If Today is a rest day, the streak continues from the last scheduled day. A past incomplete scheduled day breaks a streak. An unavailable scheduled day breaks streak certainty, while unavailable data on a rest day does not. Best streak is the longest continuous run of completed opportunities within the 30-day window.
 
-Historical totals, completion, and streaks always use the current goal configuration. Changing goal rules or targets can therefore change historical completion and streak calculations; Daily Hub does not keep versioned goal history yet.
+Historical totals, completion, and streaks always use the current goal configuration. Date-specific overrides are persisted and continue to apply to their dates, but changing a recurring weekly schedule recalculates historical weekdays unless a date has an explicit override. Changing rules or the default target can also change historical results. Daily Hub does not keep versioned schedule or goal history yet.
 
 If two goals' primary rules accidentally match one segment, only the goal with the lexicographically smallest stable goal ID receives the time. This deterministic fallback prevents double-counting; rules are easiest to understand when they do not overlap.
 
@@ -152,7 +170,7 @@ If two goals' primary rules accidentally match one segment, only the goal with t
 
 - Context starts empty at midnight for each calculated local day; it is not carried across day boundaries.
 - No automatic ActivityWatch binary or browser-extension installation.
-- No manual timers, schedules, weekly/monthly goals, calendar integrations, or cloud sync.
+- No schedule version history, weekly/monthly aggregate goals, manual timers, calendar integrations, or cloud sync.
 - Changes to rules or targets recalculate the entire selected day from current ActivityWatch history and configuration.
 
 ## Manual smoke test
@@ -169,6 +187,9 @@ If two goals' primary rules accidentally match one segment, only the goal with t
 10. In **Last 30 days**, select Yesterday and confirm that the daily and weekly sections navigate while the range still ends Today.
 11. Resize the Daily Hub pane narrowly and confirm that the heatmap remains usable with horizontal scrolling.
 12. Stop ActivityWatch for a refresh and confirm that missing activity is shown as unavailable, not as a failed zero-progress day.
+13. Set a goal to `Mon–Fri 60 min`, `Sat 30 min`, and `Sun Rest`; select Sunday and confirm that it is neutral rather than incomplete.
+14. Override Today to `90 min`, then skip and reset it; confirm that the card, Today Plan, completion denominator, and remaining total update each time.
+15. Select a future rest day and a future scheduled day; confirm that Daily Hub shows the schedule without fake activity.
 
 ## License
 

@@ -61,15 +61,31 @@ export class GoalDetailsModal extends Modal {
       cls: "daily-hub-muted"
     });
     const selectedDay = week.selectedDay;
-    if (selectedDay?.available !== true || selectedDay.activeSeconds === undefined) {
+    if (selectedDay !== undefined && !selectedDay.scheduled) {
+      selected.createEl("strong", {
+        text: selectedDay.skipped ? "Skipped" : "Rest day",
+        cls: "daily-hub-details-value daily-hub-rest-day"
+      });
+      if (selectedDay.available && (selectedDay.activeSeconds ?? 0) > 0) {
+        selected.createEl("div", {
+          text: `${formatDuration(selectedDay.activeSeconds ?? 0)} activity`,
+          cls: "daily-hub-muted"
+        });
+      }
+    } else if (selectedDay?.future === true) {
+      selected.createEl("strong", {
+        text: `Planned: ${selectedDay.targetMinutes} min`,
+        cls: "daily-hub-details-value"
+      });
+    } else if (selectedDay?.available !== true || selectedDay.activeSeconds === undefined) {
       selected.createEl("strong", { text: "—", cls: "daily-hub-details-value" });
     } else {
       const minutes = Math.floor(selectedDay.activeSeconds / 60);
       selected.createEl("strong", {
-        text: `${minutes} / ${week.targetMinutes} min`,
+        text: `${minutes} / ${selectedDay.targetMinutes} min`,
         cls: "daily-hub-details-value"
       });
-      const remainingSeconds = Math.max(week.targetMinutes * 60 - selectedDay.activeSeconds, 0);
+      const remainingSeconds = Math.max(selectedDay.targetMinutes * 60 - selectedDay.activeSeconds, 0);
       selected.createEl("div", {
         text: selectedDay.completed === true
           ? "Goal complete ✓"
@@ -84,7 +100,7 @@ export class GoalDetailsModal extends Modal {
     total.createEl("strong", { text: formatDuration(week.totalSeconds) });
     const completion = weekly.createDiv();
     completion.createEl("span", { text: "Completed on", cls: "daily-hub-muted" });
-    completion.createEl("strong", { text: `${week.completedDays} / ${week.trackedDays} elapsed days` });
+    completion.createEl("strong", { text: `${week.completedDays} / ${week.trackedDays} opportunities` });
 
     this.renderRange(container);
 
@@ -95,9 +111,14 @@ export class GoalDetailsModal extends Modal {
         text: new Intl.DateTimeFormat(undefined, { weekday: "short" })
           .format(getLocalDateRange(day.dateKey).start)
       });
-      row.createEl("strong", {
-        text: day.activeSeconds === undefined ? "—" : formatDuration(day.activeSeconds)
-      });
+      const value = !day.scheduled
+        ? day.skipped ? "Skipped" : "Rest"
+        : day.future
+          ? `Planned ${day.targetMinutes} min`
+          : day.activeSeconds === undefined
+            ? `— / ${day.targetMinutes} min`
+            : `${formatDuration(day.activeSeconds)} / ${day.targetMinutes} min`;
+      row.createEl("strong", { text: value, cls: !day.scheduled ? "daily-hub-rest-day" : undefined });
       row.createEl("span", {
         text: day.completed === true ? "✓" : "",
         cls: "daily-hub-complete",
@@ -118,7 +139,7 @@ export class GoalDetailsModal extends Modal {
     const metrics = section.createDiv({ cls: "daily-hub-details-range-grid" });
     const values: [string, string][] = [
       ["Total", formatDuration(range.totalSeconds)],
-      ["Completed days", `${range.completedDays} / ${range.availableDays}`],
+      ["Completed days", `${range.completedDays} / ${range.availableDays} scheduled`],
       ["Completion rate", range.completionRate === undefined ? "—" : `${Math.round(range.completionRate * 100)}%`],
       ["Current streak", `${range.currentStreak} days`],
       ["Best streak", `${range.bestStreak} days`]

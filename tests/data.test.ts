@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { normalizeData, requiresDataMigration } from "../src/data";
-import { DATA_SCHEMA_VERSION } from "../src/models";
+import { createDefaultSchedule, DATA_SCHEMA_VERSION } from "../src/models";
 
 describe("plugin data validation", () => {
   it("migrates legacy settings without losing valid goals", () => {
@@ -28,6 +28,8 @@ describe("plugin data validation", () => {
       id: "goal-1",
       name: "Typing",
       targetMinutes: 30,
+      schedule: createDefaultSchedule(30),
+      overrides: {},
       enabled: true,
       contextTimeoutMinutes: 10,
       rules: [{
@@ -86,6 +88,8 @@ describe("plugin data validation", () => {
       id: "mixed",
       name: "Mixed",
       targetMinutes: 25,
+      schedule: createDefaultSchedule(25),
+      overrides: {},
       contextTimeoutMinutes: 15,
       enabled: false,
       rules: [
@@ -167,5 +171,43 @@ describe("plugin data validation", () => {
     expect(data.settings.activityWatchUrl).toBe("http://localhost:5600");
     expect(data.settings.refreshIntervalSeconds).toBe(60);
     expect(data.settings.completionNotifications).toBe(true);
+  });
+
+  it("normalizes invalid schedules and keeps only valid date overrides", () => {
+    const data = normalizeData({
+      schemaVersion: DATA_SCHEMA_VERSION,
+      settings: {},
+      goals: [{
+        id: "scheduled",
+        name: "Scheduled",
+        targetMinutes: 40,
+        enabled: true,
+        rules: [{ id: "rule", role: "primary", field: "url", operator: "contains", value: "example.com" }],
+        schedule: {
+          monday: { enabled: true, targetMinutes: 90 },
+          tuesday: { enabled: false, targetMinutes: 0 },
+          wednesday: { enabled: true, targetMinutes: Number.NaN },
+          thursday: "bad"
+        },
+        overrides: {
+          "2026-08-17": { kind: "target", targetMinutes: 75 },
+          "2026-08-18": { kind: "skip" },
+          "2026-02-30": { kind: "skip" },
+          "not-a-date": { kind: "target", targetMinutes: 60 },
+          "2026-08-19": { kind: "target", targetMinutes: 0 },
+          "2026-08-20": { kind: "unknown" }
+        }
+      }]
+    });
+
+    expect(data.goals[0]?.schedule).toEqual({
+      ...createDefaultSchedule(40),
+      monday: { enabled: true, targetMinutes: 90 },
+      tuesday: { enabled: false, targetMinutes: 40 }
+    });
+    expect(data.goals[0]?.overrides).toEqual({
+      "2026-08-17": { kind: "target", targetMinutes: 75 },
+      "2026-08-18": { kind: "skip" }
+    });
   });
 });

@@ -3,13 +3,22 @@ import type DailyHubPlugin from "./main";
 import {
   createEmptyGoal,
   createEmptyRule,
+  WEEKDAYS,
   type DailyGoal,
   type GoalRule,
-  type GoalRuleRole
+  type GoalRuleRole,
+  type GoalSchedule
 } from "./models";
+import { getGoalSchedule, isValidTargetMinutes } from "./schedule";
 
 function copyGoal(goal: DailyGoal): DailyGoal {
-  return { ...goal, rules: goal.rules.map((rule) => ({ ...rule })) };
+  const schedule = getGoalSchedule(goal);
+  return {
+    ...goal,
+    schedule: Object.fromEntries(WEEKDAYS.map((weekday) => [weekday, { ...schedule[weekday] }])) as GoalSchedule,
+    overrides: structuredClone(goal.overrides ?? {}),
+    rules: goal.rules.map((rule) => ({ ...rule }))
+  };
 }
 
 export class GoalEditorModal extends Modal {
@@ -87,10 +96,53 @@ export class GoalEditorModal extends Modal {
       "Activities allowed shortly after a Primary match. They do not extend the context timeout.",
       "Add continuation rule"
     );
+    this.renderSchedule();
 
     const actions = this.contentEl.createDiv({ cls: "daily-hub-modal-actions" });
     const save = actions.createEl("button", { text: "Save goal", cls: "mod-cta" });
     save.addEventListener("click", () => { void this.save(); });
+  }
+
+  private renderSchedule(): void {
+    const schedule = getGoalSchedule(this.draft);
+    this.draft.schedule = schedule;
+    const section = this.contentEl.createDiv({ cls: "daily-hub-schedule-section" });
+    section.createEl("h3", { text: "Weekly schedule" });
+    section.createEl("p", {
+      text: "Active days create completion opportunities. Rest days do not affect streaks.",
+      cls: "daily-hub-muted"
+    });
+    const labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    const rows = section.createDiv({ cls: "daily-hub-schedule" });
+    WEEKDAYS.forEach((weekday, index) => {
+      const day = schedule[weekday];
+      const row = rows.createDiv({ cls: "daily-hub-schedule-row" });
+      const checkboxId = `daily-hub-schedule-${this.draft.id}-${weekday}`;
+      const checkbox = row.createEl("input", { type: "checkbox", attr: { id: checkboxId } });
+      checkbox.checked = day.enabled;
+      row.createEl("label", { text: labels[index] ?? weekday, attr: { for: checkboxId } });
+      const target = row.createEl("input", {
+        type: "number",
+        value: String(day.targetMinutes),
+        attr: { min: "1", "aria-label": `${labels[index] ?? weekday} target minutes` }
+      });
+      target.disabled = !day.enabled;
+      const suffix = row.createEl("span", { text: day.enabled ? "min" : "Rest", cls: "daily-hub-muted" });
+      checkbox.addEventListener("change", () => {
+        day.enabled = checkbox.checked;
+        target.disabled = !day.enabled;
+        suffix.setText(day.enabled ? "min" : "Rest");
+      });
+      target.addEventListener("input", () => { day.targetMinutes = Number(target.value); });
+    });
+    const applyDefault = section.createEl("button", {
+      text: "Apply default target to all days",
+      cls: "daily-hub-schedule-apply"
+    });
+    applyDefault.addEventListener("click", () => {
+      for (const weekday of WEEKDAYS) schedule[weekday].targetMinutes = this.draft.targetMinutes;
+      this.render();
+    });
   }
 
   private renderRuleSection(
@@ -184,6 +236,12 @@ export class GoalEditorModal extends Modal {
     }
     if (!Number.isFinite(this.draft.targetMinutes) || this.draft.targetMinutes <= 0) {
       new Notice("Daily Hub: daily minimum must be greater than zero");
+      return;
+    }
+    const schedule = getGoalSchedule(this.draft);
+    if (WEEKDAYS.some((weekday) => schedule[weekday].enabled
+      && !isValidTargetMinutes(schedule[weekday].targetMinutes))) {
+      new Notice("Daily Hub: every active schedule day needs a target of at least one minute");
       return;
     }
     if (!Number.isFinite(this.draft.contextTimeoutMinutes) || this.draft.contextTimeoutMinutes <= 0) {

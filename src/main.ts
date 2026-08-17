@@ -10,8 +10,10 @@ import {
   type ActivityWatchSnapshot,
   type DailyGoal,
   type DailyHubData,
+  type GoalDayOverride,
   type GoalProgress
 } from "./models";
+import { applyScheduleToProgress, withGoalDayOverride } from "./schedule";
 import { DailyHubSettingTab } from "./settings";
 import { DAILY_HUB_VIEW_TYPE, DailyHubView } from "./view";
 
@@ -72,6 +74,19 @@ export default class DailyHubPlugin extends Plugin {
     await this.refreshViews();
   }
 
+  async setGoalDayOverride(
+    goalId: string,
+    dateKey: string,
+    override: GoalDayOverride | undefined
+  ): Promise<void> {
+    const index = this.data.goals.findIndex((goal) => goal.id === goalId);
+    const goal = this.data.goals[index];
+    if (index < 0 || goal === undefined) return;
+    this.data.goals[index] = withGoalDayOverride(goal, dateKey, override);
+    await this.savePluginData();
+    await this.refreshViews();
+  }
+
   async deleteGoal(id: string): Promise<void> {
     this.data.goals = this.data.goals.filter((goal) => goal.id !== id);
     this.data.notifiedCompletions = this.data.notifiedCompletions.filter((key) => !key.endsWith(`:${id}`));
@@ -120,14 +135,14 @@ export default class DailyHubPlugin extends Plugin {
     const notified = new Set(this.data.notifiedCompletions);
     const goals = new Map(this.data.goals.map((goal) => [goal.id, goal]));
 
-    for (const item of progress) {
+    for (const item of applyScheduleToProgress(this.data.goals, progress, dateKey)) {
       if (!item.completed) continue;
       const key = `${dateKey}:${item.goalId}`;
       if (notified.has(key)) continue;
       const goal = goals.get(item.goalId);
       if (!goal?.enabled) continue;
 
-      new Notice(`Daily Hub\n${goal.name} complete\n${Math.floor(item.actualMinutes)} / ${goal.targetMinutes} min`);
+      new Notice(`Daily Hub\n${goal.name} complete\n${Math.floor(item.actualMinutes)} / ${item.targetMinutes} min`);
       this.data.notifiedCompletions.push(key);
       notified.add(key);
       changed = true;

@@ -20,10 +20,36 @@ export interface ContinuationGoalRule extends GoalRuleBase {
 
 export type GoalRule = PrimaryGoalRule | ContinuationGoalRule;
 
+export const WEEKDAYS = [
+  "monday",
+  "tuesday",
+  "wednesday",
+  "thursday",
+  "friday",
+  "saturday",
+  "sunday"
+] as const;
+
+export type Weekday = typeof WEEKDAYS[number];
+
+export interface GoalScheduleDay {
+  enabled: boolean;
+  targetMinutes: number;
+}
+
+export type GoalSchedule = Record<Weekday, GoalScheduleDay>;
+
+export type GoalDayOverride =
+  | { kind: "target"; targetMinutes: number }
+  | { kind: "skip" };
+
 export interface DailyGoal {
   id: string;
   name: string;
   targetMinutes: number;
+  /** Present on normalized schema-v5 data; optional here so legacy in-memory goals remain adaptable. */
+  schedule?: GoalSchedule;
+  overrides?: Record<string, GoalDayOverride>;
   rules: GoalRule[];
   contextTimeoutMinutes: number;
   enabled: boolean;
@@ -85,7 +111,7 @@ export interface ActivityWatchSnapshot {
   activity: DayActivity;
 }
 
-export const DATA_SCHEMA_VERSION = 4;
+export const DATA_SCHEMA_VERSION = 5;
 export const DEFAULT_CONTEXT_TIMEOUT_MINUTES = 10;
 
 export const DEFAULT_SETTINGS: DailyHubSettings = {
@@ -124,11 +150,20 @@ export function updateGoalEnabled(goals: DailyGoal[], goalId: string, enabled: b
   return true;
 }
 
+export function createDefaultSchedule(targetMinutes: number): GoalSchedule {
+  return Object.fromEntries(WEEKDAYS.map((weekday) => [
+    weekday,
+    { enabled: true, targetMinutes }
+  ])) as GoalSchedule;
+}
+
 export function createEmptyGoal(): DailyGoal {
   return {
     id: createId(),
     name: "",
     targetMinutes: 30,
+    schedule: createDefaultSchedule(30),
+    overrides: {},
     rules: [createEmptyRule()],
     contextTimeoutMinutes: DEFAULT_CONTEXT_TIMEOUT_MINUTES,
     enabled: true

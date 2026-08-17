@@ -3,13 +3,18 @@ import {
   DEFAULT_CONTEXT_TIMEOUT_MINUTES,
   DEFAULT_DATA,
   DEFAULT_SETTINGS,
+  WEEKDAYS,
   type DailyGoal,
   type DailyHubData,
+  type GoalDayOverride,
   type GoalRule,
   type GoalRuleRole,
+  type GoalSchedule,
   type MatchOperator,
   type RuleField
 } from "./models";
+import { getLocalDateRange } from "./date";
+import { isValidTargetMinutes } from "./schedule";
 
 const RULE_FIELDS = new Set<RuleField>(["url", "application", "windowTitle"]);
 const MATCH_OPERATORS = new Set<MatchOperator>(["contains", "equals"]);
@@ -45,6 +50,38 @@ function parseRule(value: unknown): GoalRule | undefined {
     : { ...rule, role };
 }
 
+function parseSchedule(value: unknown, targetMinutes: number): GoalSchedule {
+  const schedule = isRecord(value) ? value : {};
+  return Object.fromEntries(WEEKDAYS.map((weekday) => {
+    const day = isRecord(schedule[weekday]) ? schedule[weekday] : {};
+    const enabled = typeof day.enabled === "boolean" ? day.enabled : true;
+    return [weekday, {
+      enabled,
+      targetMinutes: isValidTargetMinutes(day.targetMinutes) ? day.targetMinutes : targetMinutes
+    }];
+  })) as GoalSchedule;
+}
+
+function validDateKey(value: string): boolean {
+  try {
+    return getLocalDateRange(value).key === value;
+  } catch {
+    return false;
+  }
+}
+
+function parseOverrides(value: unknown): Record<string, GoalDayOverride> {
+  if (!isRecord(value)) return {};
+  return Object.fromEntries(Object.entries(value).flatMap<[string, GoalDayOverride]>(([dateKey, candidate]) => {
+    if (!validDateKey(dateKey) || !isRecord(candidate)) return [];
+    if (candidate.kind === "skip") return [[dateKey, { kind: "skip" } satisfies GoalDayOverride]];
+    if (candidate.kind === "target" && isValidTargetMinutes(candidate.targetMinutes)) {
+      return [[dateKey, { kind: "target", targetMinutes: candidate.targetMinutes } satisfies GoalDayOverride]];
+    }
+    return [];
+  }));
+}
+
 function parseGoal(value: unknown): DailyGoal | undefined {
   if (!isRecord(value)
     || !nonEmptyString(value.id)
@@ -67,6 +104,8 @@ function parseGoal(value: unknown): DailyGoal | undefined {
     id: value.id,
     name: value.name,
     targetMinutes: value.targetMinutes,
+    schedule: parseSchedule(value.schedule, value.targetMinutes),
+    overrides: parseOverrides(value.overrides),
     enabled: value.enabled,
     rules,
     contextTimeoutMinutes: typeof value.contextTimeoutMinutes === "number"

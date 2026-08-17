@@ -1,12 +1,13 @@
-import type { DailyGoal, GoalProgress } from "./models";
+import type { DailyGoal } from "./models";
 import type { DayProgressResult } from "./range-progress";
+import { applyScheduleToProgress, getEffectiveGoalDay } from "./schedule";
 
 export interface DayAnalytics {
   dateKey: string;
   available: boolean;
   totalSeconds: number | undefined;
   completedGoals: number | undefined;
-  goalCount: number | undefined;
+  goalCount: number;
   progressRatio: number | undefined;
 }
 
@@ -36,56 +37,55 @@ export interface RangeAnalytics {
 }
 
 interface GoalDay {
+  scheduled: boolean;
   available: boolean;
   completed: boolean;
   activeSeconds: number;
 }
 
-function enabledProgress(
-  progress: GoalProgress[],
-  enabledIds: Set<string>
-): GoalProgress[] {
-  return progress.filter((item) => enabledIds.has(item.goalId));
-}
-
-function dayAnalytics(day: DayProgressResult, enabledIds: Set<string>): DayAnalytics {
+function dayAnalytics(day: DayProgressResult, goals: DailyGoal[]): DayAnalytics {
+  const scheduledGoals = goals.filter((goal) => getEffectiveGoalDay(goal, day.dateKey).scheduled).length;
   if (day.future || day.progress === undefined) {
     return {
       dateKey: day.dateKey,
       available: false,
       totalSeconds: undefined,
       completedGoals: undefined,
-      goalCount: undefined,
+      goalCount: scheduledGoals,
       progressRatio: undefined
     };
   }
 
-  const progress = enabledProgress(day.progress, enabledIds);
-  const totalSeconds = progress.reduce((total, item) => total + item.activeSeconds, 0);
-  const completedGoals = progress.filter((item) => item.completed).length;
-  const goalCount = enabledIds.size;
+  const planned = applyScheduleToProgress(goals, day.progress, day.dateKey);
+  const totalSeconds = planned.reduce((total, item) => total + item.activeSeconds, 0);
+  const scheduled = planned.filter((item) => item.scheduled);
+  const completedGoals = scheduled.filter((item) => item.completed).length;
   return {
     dateKey: day.dateKey,
     available: true,
     totalSeconds,
     completedGoals,
-    goalCount,
-    progressRatio: goalCount === 0
+    goalCount: scheduled.length,
+    progressRatio: scheduled.length === 0
       ? undefined
-      : progress.reduce((total, item) => total + Math.min(Math.max(item.progressRatio, 0), 1), 0) / goalCount
+      : scheduled.reduce(
+        (total, item) => total + Math.min(Math.max(item.progressRatio ?? 0, 0), 1),
+        0
+      ) / scheduled.length
   };
 }
 
-function goalDays(goalId: string, days: DayProgressResult[]): GoalDay[] {
+function goalDays(goal: DailyGoal, days: DayProgressResult[]): GoalDay[] {
   return days.map((day) => {
-    if (day.future || day.progress === undefined) {
-      return { available: false, completed: false, activeSeconds: 0 };
-    }
-    const progress = day.progress.find((item) => item.goalId === goalId);
+    const effective = getEffectiveGoalDay(goal, day.dateKey);
+    const raw = day.progress?.find((item) => item.goalId === goal.id);
+    const available = !day.future && day.progress !== undefined;
+    const activeSeconds = available ? raw?.activeSeconds ?? 0 : 0;
     return {
-      available: true,
-      completed: progress?.completed === true,
-      activeSeconds: progress?.activeSeconds ?? 0
+      scheduled: effective.scheduled,
+      available,
+      completed: effective.scheduled && available && activeSeconds >= effective.targetMinutes * 60,
+      activeSeconds
     };
   });
 }
@@ -94,6 +94,7 @@ function bestStreak(days: GoalDay[]): number {
   let best = 0;
   let current = 0;
   for (const day of days) {
+    if (!day.scheduled) continue;
     current = day.available && day.completed ? current + 1 : 0;
     best = Math.max(best, current);
   }
@@ -101,37 +102,44 @@ function bestStreak(days: GoalDay[]): number {
 }
 
 function currentStreak(days: GoalDay[]): number {
-  if (days.length === 0) return 0;
   let index = days.length - 1;
-  const today = days[index];
-  if (!today?.available) return 0;
-  if (!today.completed) index -= 1;
+  while (index >= 0 && days[index]?.scheduled === false) index -= 1;
+  if (index < 0) return 0;
+
+  const last = days[index];
+  if (!last?.available) return 0;
+  if (!last.completed) {
+    if (index !== days.length - 1) return 0;
+    index -= 1;
+  }
 
   let streak = 0;
   while (index >= 0) {
     const day = days[index];
-    if (day === undefined || !day.available || !day.completed) break;
-    streak += 1;
+    if (day === undefined) break;
     index -= 1;
+    if (!day.scheduled) continue;
+    if (!day.available || !day.completed) break;
+    streak += 1;
   }
   return streak;
 }
 
 function buildGoalStats(goal: DailyGoal, days: DayProgressResult[]): GoalRangeStats {
-  const tracked = goalDays(goal.id, days);
-  const availableDays = tracked.filter((day) => day.available).length;
-  const completedDays = tracked.filter((day) => day.available && day.completed).length;
+  const tracked = goalDays(goal, days);
+  const opportunities = tracked.filter((day) => day.scheduled && day.available);
+  const completedDays = opportunities.filter((day) => day.completed).length;
   return {
     goalId: goal.id,
     goalName: goal.name,
     targetMinutes: goal.targetMinutes,
     totalSeconds: tracked.reduce((total, day) => total + day.activeSeconds, 0),
     completedDays,
-    availableDays,
+    availableDays: opportunities.length,
     currentStreak: currentStreak(tracked),
     bestStreak: bestStreak(tracked),
-    completionRate: availableDays === 0 ? undefined : completedDays / availableDays,
-    streakMayBeIncomplete: tracked.some((day) => !day.available)
+    completionRate: opportunities.length === 0 ? undefined : completedDays / opportunities.length,
+    streakMayBeIncomplete: tracked.some((day) => day.scheduled && !day.available)
   };
 }
 
@@ -150,12 +158,11 @@ export function calculateRangeAnalytics(
   progressDays: DayProgressResult[]
 ): RangeAnalytics {
   const enabledGoals = goals.filter((goal) => goal.enabled);
-  const enabledIds = new Set(enabledGoals.map((goal) => goal.id));
-  const days = progressDays.map((day) => dayAnalytics(day, enabledIds));
+  const days = progressDays.map((day) => dayAnalytics(day, enabledGoals));
   const available = days.filter((day) => day.available);
   const totalSeconds = available.reduce((total, day) => total + (day.totalSeconds ?? 0), 0);
   const completedGoals = available.reduce((total, day) => total + (day.completedGoals ?? 0), 0);
-  const goalOpportunities = available.reduce((total, day) => total + (day.goalCount ?? 0), 0);
+  const goalOpportunities = available.reduce((total, day) => total + day.goalCount, 0);
 
   return {
     totalSeconds,

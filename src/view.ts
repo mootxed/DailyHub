@@ -8,7 +8,7 @@ import {
 import {
   formatDuration,
   formatRemainingDuration,
-  getRemainingGoals,
+  getDayPlan,
   getTotalRemainingSeconds,
   summarizeDay,
   summarizeWeek,
@@ -25,6 +25,7 @@ import {
   isToday,
   toLocalDateKey
 } from "./date";
+import { DayOverrideModal } from "./day-override";
 import { GoalEditorModal } from "./goal-editor";
 import { GoalDetailsModal, type GoalDetailsStats } from "./goal-details";
 import { LongTermActivityState } from "./long-term-state";
@@ -32,6 +33,7 @@ import type DailyHubPlugin from "./main";
 import type { ActivityWatchSnapshot, ActivityWatchStatus, DailyGoal, GoalProgress } from "./models";
 import { calculateDailyProgress } from "./progress";
 import { calculateRangeProgress, type DayActivityInput } from "./range-progress";
+import { applyScheduleToProgress, type PlannedGoalProgress } from "./schedule";
 import { calculateGoalWeekStats, calculateWeekProgress, type WeekDayActivity } from "./weekly-progress";
 
 export const DAILY_HUB_VIEW_TYPE = "daily-hub-view";
@@ -235,7 +237,7 @@ export class DailyHubView extends ItemView {
       cls: "daily-hub-date"
     });
 
-    const daySummary = summarizeDay(this.plugin.data.goals, progress);
+    const daySummary = summarizeDay(this.plugin.data.goals, progress, this.selectedDateKey);
     const summary = container.createDiv({ cls: "daily-hub-summary", attr: { "aria-label": "Daily summary" } });
     const studied = summary.createDiv({ cls: "daily-hub-summary-item" });
     studied.createEl("strong", {
@@ -249,12 +251,12 @@ export class DailyHubView extends ItemView {
     completed.createEl("span", { text: "goals completed" });
     if (selectedAvailable && daySummary.goalCount > 0 && daySummary.completedGoals === daySummary.goalCount) {
       container.createEl("div", { text: "All goals completed ✓", cls: "daily-hub-all-complete" });
+    } else if (daySummary.goalCount === 0) {
+      container.createEl("div", { text: "No goals scheduled", cls: "daily-hub-rest-day" });
     }
 
     this.renderStatus(container, status);
-    if (isToday(this.selectedDateKey, today)) {
-      this.renderRemainingToday(container, progress, selectedAvailable);
-    }
+    this.renderDayPlan(container, date, today, progress, selectedAvailable, future);
     container.createEl("h2", { text: "Goals", cls: "daily-hub-section-title" });
 
     const enabledGoals = this.plugin.data.goals.filter((goal) => goal.enabled);
@@ -266,7 +268,10 @@ export class DailyHubView extends ItemView {
       emptyAdd.addEventListener("click", () => new GoalEditorModal(this.plugin).open());
     } else {
       const goals = container.createDiv({ cls: "daily-hub-goals" });
-      const progressByGoal = new Map(progress.map((item) => [item.goalId, item]));
+      const progressByGoal = new Map(
+        applyScheduleToProgress(this.plugin.data.goals, progress, this.selectedDateKey)
+          .map((item) => [item.goalId, item])
+      );
       const weekByGoal = new Map(weeklyAnalytics.goals.map((item) => [item.goalId, item]));
       for (const goal of enabledGoals) {
         const goalProgress = progressByGoal.get(goal.id);
@@ -328,35 +333,62 @@ export class DailyHubView extends ItemView {
     void this.refresh();
   }
 
-  private renderRemainingToday(
+  private renderDayPlan(
     container: HTMLElement,
+    date: Date,
+    today: Date,
     progress: GoalProgress[],
-    selectedAvailable: boolean
+    selectedAvailable: boolean,
+    future: boolean
   ): void {
     const section = container.createDiv({ cls: "daily-hub-remaining" });
-    section.createEl("h2", { text: "Remaining today", cls: "daily-hub-section-title" });
-    if (!selectedAvailable) {
-      section.createEl("p", { text: "Remaining time unavailable", cls: "daily-hub-muted" });
-      return;
-    }
+    const heading = isToday(this.selectedDateKey, today)
+      ? "Today Plan"
+      : `Plan for ${new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date)}`;
+    section.createEl("h2", { text: heading, cls: "daily-hub-section-title" });
 
-    const remaining = getRemainingGoals(this.plugin.data.goals, progress);
-    if (remaining.length === 0) {
-      section.createEl("p", { text: "Nothing left for today ✓", cls: "daily-hub-all-complete" });
+    const plan = getDayPlan(this.plugin.data.goals, progress, this.selectedDateKey);
+    if (plan.length === 0) {
+      section.createEl("p", { text: "No goals scheduled", cls: "daily-hub-rest-day" });
       return;
     }
 
     const list = section.createDiv({ cls: "daily-hub-remaining-list" });
-    for (const item of remaining) {
-      const row = list.createDiv({ cls: "daily-hub-remaining-row" });
-      row.createEl("span", { text: item.name });
-      row.createEl("strong", { text: formatRemainingDuration(item.remainingSeconds) });
+    for (const item of plan) {
+      const row = list.createDiv({
+        cls: `daily-hub-remaining-row${item.completed ? " is-complete" : ""}`
+      });
+      const copy = row.createDiv({ cls: "daily-hub-plan-copy" });
+      copy.createEl("strong", { text: `${item.completed ? "✓ " : ""}${item.name}` });
+      copy.createEl("span", {
+        text: selectedAvailable
+          ? `${Math.floor(item.actualMinutes)} / ${item.targetMinutes} min`
+          : `Planned: ${item.targetMinutes} min`,
+        cls: "daily-hub-muted"
+      });
+      row.createEl("strong", {
+        text: item.completed
+          ? "Complete"
+          : selectedAvailable || future
+            ? `${formatRemainingDuration(item.remainingSeconds)} remaining`
+            : "Activity unavailable"
+      });
     }
-    const total = section.createDiv({ cls: "daily-hub-remaining-total" });
-    total.createEl("span", { text: "Total" });
-    total.createEl("strong", {
-      text: formatRemainingDuration(getTotalRemainingSeconds(this.plugin.data.goals, progress))
-    });
+    if (selectedAvailable || future) {
+      const total = section.createDiv({ cls: "daily-hub-remaining-total" });
+      total.createEl("span", { text: "Total remaining" });
+      total.createEl("strong", {
+        text: formatRemainingDuration(getTotalRemainingSeconds(
+          this.plugin.data.goals,
+          progress,
+          this.selectedDateKey
+        ))
+      });
+    }
+    const next = plan.find((item) => !item.completed);
+    if (next !== undefined) {
+      section.createEl("p", { text: `Next suggested: ${next.name}`, cls: "daily-hub-muted" });
+    }
   }
 
   private renderWeek(
@@ -398,7 +430,7 @@ export class DailyHubView extends ItemView {
       button.createEl("strong", { text: String(day.date.getDate()) });
       const daySummary = day.progress === undefined
         ? undefined
-        : summarizeDay(this.plugin.data.goals, day.progress);
+        : summarizeDay(this.plugin.data.goals, day.progress, day.key);
       if (daySummary === undefined) {
         button.createEl("span", { text: "—", cls: "daily-hub-week-stat" });
       } else {
@@ -407,7 +439,9 @@ export class DailyHubView extends ItemView {
           cls: "daily-hub-week-stat"
         });
         button.createEl("span", {
-          text: `${daySummary.completedGoals}/${daySummary.goalCount}`,
+          text: daySummary.goalCount === 0
+            ? "Rest"
+            : `${daySummary.completedGoals}/${daySummary.goalCount}`,
           cls: "daily-hub-week-stat daily-hub-muted"
         });
       }
@@ -483,22 +517,26 @@ export class DailyHubView extends ItemView {
       const date = getLocalDateRange(day.dateKey).start;
       const dateLabel = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date);
       const selected = day.dateKey === this.selectedDateKey;
-      const available = day.available && day.progressRatio !== undefined;
-      const details = available
-        ? `${formatDuration(day.totalSeconds ?? 0)} studied, ${day.completedGoals ?? 0} of ${day.goalCount ?? 0} goals completed, ${Math.round((day.progressRatio ?? 0) * 100)}% planned progress`
+      const restDay = day.goalCount === 0;
+      const ratio = day.progressRatio;
+      const available = day.available && ratio !== undefined;
+      const details = restDay
+        ? "No goals scheduled"
+        : available
+        ? `${formatDuration(day.totalSeconds ?? 0)} studied, ${day.completedGoals ?? 0} of ${day.goalCount} goals completed, ${Math.round(ratio * 100)}% planned progress`
         : "Activity data unavailable";
       const label = `${dateLabel}: ${details}`;
       const button = heatmap.createEl("button", {
-        text: available ? "" : "—",
-        cls: `daily-hub-heatmap-cell${available ? ` is-level-${getHeatmapLevel(day.progressRatio ?? 0)}` : " is-unavailable"}${selected ? " is-selected" : ""}`,
+        text: available ? "" : restDay ? "·" : "—",
+        cls: `daily-hub-heatmap-cell${available ? ` is-level-${getHeatmapLevel(ratio)}` : restDay ? " is-rest" : " is-unavailable"}${selected ? " is-selected" : ""}`,
         attr: {
           "aria-label": label,
           title: label,
           ...(selected ? { "aria-current": "date" } : {})
         }
       });
-      button.disabled = !available;
-      if (available) button.addEventListener("click", () => this.selectDate(day.dateKey));
+      button.disabled = !available && !restDay;
+      if (available || restDay) button.addEventListener("click", () => this.selectDate(day.dateKey));
     }
   }
 
@@ -511,7 +549,7 @@ export class DailyHubView extends ItemView {
       heading.createEl("strong", { text: goal.goalName });
       heading.createEl("span", { text: formatDuration(goal.totalSeconds), cls: "daily-hub-muted" });
       card.createEl("div", {
-        text: `${goal.completedDays} / ${goal.availableDays} days completed`,
+        text: `${goal.completedDays} / ${goal.availableDays} scheduled days completed`,
         cls: "daily-hub-consistency-completion"
       });
       card.createEl("div", {
@@ -643,7 +681,7 @@ export class DailyHubView extends ItemView {
   private renderGoal(
     container: HTMLElement,
     goal: DailyGoal,
-    progress: GoalProgress,
+    progress: PlannedGoalProgress,
     week: GoalWeekStats,
     selectedAvailable: boolean,
     future: boolean
@@ -673,9 +711,31 @@ export class DailyHubView extends ItemView {
     setIcon(edit, "pencil");
     edit.addEventListener("click", () => new GoalEditorModal(this.plugin, goal).open());
 
+    const adjust = actions.createEl("button", {
+      text: "Adjust this day",
+      cls: "daily-hub-details-button"
+    });
+    adjust.addEventListener("click", () => {
+      new DayOverrideModal(this.plugin, goal, this.selectedDateKey).open();
+    });
+
+    if (!progress.scheduled) {
+      card.createEl("div", {
+        text: progress.skipped ? "Skipped" : "Rest day",
+        cls: "daily-hub-rest-day daily-hub-no-activity"
+      });
+      if (selectedAvailable && progress.activeSeconds > 0) {
+        card.createEl("div", {
+          text: `${formatDuration(progress.activeSeconds)} activity`,
+          cls: "daily-hub-muted daily-hub-no-activity"
+        });
+      }
+      return;
+    }
+
     if (!selectedAvailable) {
       card.createEl("div", {
-        text: future ? "— Future day" : "— Activity unavailable",
+        text: future ? `Planned: ${progress.targetMinutes} min` : `Activity unavailable · target ${progress.targetMinutes} min`,
         cls: "daily-hub-muted daily-hub-no-activity"
       });
       return;
@@ -685,23 +745,23 @@ export class DailyHubView extends ItemView {
       cls: "daily-hub-progress",
       attr: {
         max: "1",
-        value: String(progress.progressRatio),
-        "aria-label": `${goal.name}: ${Math.floor(progress.actualMinutes)} of ${goal.targetMinutes} minutes`
+        value: String(progress.progressRatio ?? 0),
+        "aria-label": `${goal.name}: ${Math.floor(progress.actualMinutes)} of ${progress.targetMinutes} minutes`
       }
     });
     bar.max = 1;
-    bar.value = progress.progressRatio;
+    bar.value = progress.progressRatio ?? 0;
 
     const summary = card.createDiv({ cls: "daily-hub-goal-summary" });
     const minutes = Math.floor(progress.actualMinutes);
-    summary.createEl("strong", { text: `${minutes} / ${goal.targetMinutes} min` });
+    summary.createEl("strong", { text: `${minutes} / ${progress.targetMinutes} min` });
     if (progress.completed) {
       const complete = summary.createEl("span", { text: "Complete", cls: "daily-hub-complete" });
       setIcon(complete, "check");
-      const extra = Math.floor(progress.actualMinutes - goal.targetMinutes);
+      const extra = Math.floor(progress.actualMinutes - progress.targetMinutes);
       if (extra > 0) card.createEl("div", { text: `+${extra} min beyond goal`, cls: "daily-hub-muted" });
     } else {
-      const remaining = Math.max(0, Math.ceil(goal.targetMinutes - progress.actualMinutes));
+      const remaining = Math.max(0, Math.ceil(progress.targetMinutes - progress.actualMinutes));
       card.createEl("div", { text: `${remaining} min remaining`, cls: "daily-hub-muted" });
     }
   }

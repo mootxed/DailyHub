@@ -2,40 +2,40 @@ import { describe, expect, it } from "vitest";
 import {
   formatDuration,
   formatRemainingDuration,
+  getDayPlan,
   getRemainingGoals,
   getTotalRemainingSeconds,
   summarizeDay,
   summarizeWeek,
   type WeekDayProgress
 } from "../src/dashboard";
-import type { DailyGoal, GoalProgress } from "../src/models";
+import { createDefaultSchedule, type DailyGoal, type GoalProgress } from "../src/models";
 
-const goals: DailyGoal[] = [
-  {
+const devopsGoal: DailyGoal = {
     id: "devops",
     name: "DevOps",
     targetMinutes: 60,
     rules: [],
     contextTimeoutMinutes: 10,
     enabled: true
-  },
-  {
+};
+const typingGoal: DailyGoal = {
     id: "typing",
     name: "Typing",
     targetMinutes: 30,
     rules: [],
     contextTimeoutMinutes: 10,
     enabled: true
-  },
-  {
+};
+const disabledGoal: DailyGoal = {
     id: "disabled",
     name: "Disabled",
     targetMinutes: 10,
     rules: [],
     contextTimeoutMinutes: 10,
     enabled: false
-  }
-];
+};
+const goals: DailyGoal[] = [devopsGoal, typingGoal, disabledGoal];
 
 function progress(goalId: string, activeSeconds: number, completed: boolean): GoalProgress {
   return {
@@ -54,11 +54,15 @@ describe("dashboard summaries", () => {
       progress("devops", 3_600, true),
       progress("typing", 1_200, false),
       progress("disabled", 600, true)
-    ])).toEqual({ totalActiveSeconds: 4_800, completedGoals: 1, goalCount: 2 });
+    ], "2026-08-17")).toEqual({ totalActiveSeconds: 4_800, completedGoals: 1, goalCount: 2 });
   });
 
   it("returns a zero summary for a future day", () => {
-    expect(summarizeDay(goals, [])).toEqual({ totalActiveSeconds: 0, completedGoals: 0, goalCount: 2 });
+    expect(summarizeDay(goals, [], "2026-08-17")).toEqual({
+      totalActiveSeconds: 0,
+      completedGoals: 0,
+      goalCount: 2
+    });
   });
 
   it("formats durations without fractional minutes", () => {
@@ -75,20 +79,40 @@ describe("dashboard summaries", () => {
       progress("typing", 1_800, true),
       progress("disabled", 0, false)
     ];
-    expect(getRemainingGoals(goals, current)).toEqual([{
+    expect(getRemainingGoals(goals, current, "2026-08-17")).toEqual([{
       goalId: "devops",
       name: "DevOps",
       remainingSeconds: 1_140
     }]);
-    expect(getTotalRemainingSeconds(goals, current)).toBe(1_140);
+    expect(getTotalRemainingSeconds(goals, current, "2026-08-17")).toBe(1_140);
   });
 
   it("treats a missing progress row as zero without including disabled goals", () => {
-    expect(getRemainingGoals(goals, [])).toEqual([
+    expect(getRemainingGoals(goals, [], "2026-08-17")).toEqual([
       { goalId: "devops", name: "DevOps", remainingSeconds: 3_600 },
       { goalId: "typing", name: "Typing", remainingSeconds: 1_800 }
     ]);
-    expect(getTotalRemainingSeconds(goals, [])).toBe(5_400);
+    expect(getTotalRemainingSeconds(goals, [], "2026-08-17")).toBe(5_400);
+  });
+
+  it("builds a stable plan with completed goals and excludes rest or skipped goals", () => {
+    const devopsSchedule = createDefaultSchedule(60);
+    const typingSchedule = createDefaultSchedule(30);
+    typingSchedule.monday.enabled = false;
+    const scheduledGoals: DailyGoal[] = [
+      { ...devopsGoal, schedule: devopsSchedule },
+      { ...typingGoal, schedule: typingSchedule },
+      { ...disabledGoal, schedule: createDefaultSchedule(10) }
+    ];
+    const plan = getDayPlan(scheduledGoals, [progress("devops", 3_600, true)], "2026-08-17");
+    expect(plan.map((item) => item.goalId)).toEqual(["devops"]);
+    expect(plan[0]).toMatchObject({ completed: true, remainingSeconds: 0, targetMinutes: 60 });
+
+    const skipped = scheduledGoals.map((goal) => goal.id === "devops"
+      ? { ...goal, overrides: { "2026-08-17": { kind: "skip" as const } } }
+      : goal);
+    expect(getDayPlan(skipped, [], "2026-08-17")).toEqual([]);
+    expect(getTotalRemainingSeconds(skipped, [], "2026-08-17")).toBe(0);
   });
 });
 
@@ -172,7 +196,7 @@ describe("weekly analytics", () => {
     ], "2026-08-18");
     const devops = week.goals.find((goal) => goal.goalId === "devops");
     expect(devops).toMatchObject({ completedDays: 1, trackedDays: 1 });
-    expect(devops?.selectedDay).toEqual({
+    expect(devops?.selectedDay).toMatchObject({
       dateKey: "2026-08-18",
       future: true,
       available: false,
@@ -195,5 +219,31 @@ describe("weekly analytics", () => {
       goalOpportunities: 2
     });
     expect(week.goals[0]?.days[1]).toMatchObject({ available: false, completed: undefined });
+  });
+
+  it("counts only scheduled weekly opportunities while keeping calendar-day averages", () => {
+    const schedule = createDefaultSchedule(60);
+    schedule.wednesday.enabled = false;
+    schedule.saturday.enabled = false;
+    schedule.sunday.enabled = false;
+    const scheduledGoals: DailyGoal[] = [{ ...devopsGoal, schedule }];
+    const week = summarizeWeek(scheduledGoals, [
+      weekDay("2026-08-17", [progress("devops", 3_600, true)]),
+      weekDay("2026-08-18", [progress("devops", 3_600, true)]),
+      weekDay("2026-08-19", [progress("devops", 0, false)]),
+      weekDay("2026-08-20", [progress("devops", 0, false)]),
+      weekDay("2026-08-21", [progress("devops", 3_600, true)]),
+      weekDay("2026-08-22", [progress("devops", 0, false)]),
+      weekDay("2026-08-23", [progress("devops", 0, false)])
+    ], "2026-08-20");
+
+    expect(week).toMatchObject({
+      totalActiveSeconds: 10_800,
+      dailyAverageSeconds: 10_800 / 7,
+      completedGoals: 3,
+      goalOpportunities: 4
+    });
+    expect(week.goals[0]).toMatchObject({ completedDays: 3, trackedDays: 4 });
+    expect(week.goals[0]?.days[2]).toMatchObject({ scheduled: false, skipped: false });
   });
 });

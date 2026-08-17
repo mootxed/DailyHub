@@ -48,6 +48,12 @@ export default defineConfig({
           functions: 95,
           branches: 85
         },
+        "src/schedule.ts": {
+          lines: 95,
+          statements: 95,
+          functions: 95,
+          branches: 90
+        },
         "src/range-loader.ts": {
           lines: 95,
           statements: 95,

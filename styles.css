@@ -48,6 +48,12 @@
   gap: var(--size-4-2);
 }
 
+.daily-hub-goal-actions,
+.daily-hub-override-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .daily-hub-kicker {
   color: var(--text-accent);
   font-size: var(--font-ui-small);
@@ -200,6 +206,15 @@
   font-variant-numeric: tabular-nums;
 }
 
+.daily-hub-plan-copy {
+  display: grid;
+  gap: 2px;
+}
+
+.daily-hub-remaining-row.is-complete {
+  color: var(--text-success);
+}
+
 .daily-hub-remaining-total {
   border-top: 1px solid var(--background-modifier-border);
   margin-top: var(--size-4-3);
@@ -297,6 +312,11 @@
   display: inline-flex;
   font-weight: var(--font-semibold);
   gap: var(--size-4-1);
+}
+
+.daily-hub-rest-day {
+  color: var(--text-muted);
+  font-weight: var(--font-semibold);
 }
 
 .daily-hub-complete svg {
@@ -508,6 +528,12 @@
   opacity: 1;
 }
 
+.daily-hub-heatmap-cell.is-rest {
+  background: var(--background-secondary-alt);
+  border-style: dotted;
+  color: var(--text-muted);
+}
+
 .daily-hub-consistency {
   display: grid;
   gap: var(--size-4-3);
@@ -583,6 +609,34 @@
 
 .daily-hub-rule-section {
   margin-top: var(--size-4-5);
+}
+
+.daily-hub-schedule-section {
+  margin-top: var(--size-4-5);
+}
+
+.daily-hub-schedule-section h3 {
+  margin-bottom: var(--size-4-1);
+}
+
+.daily-hub-schedule {
+  display: grid;
+  gap: var(--size-4-2);
+}
+
+.daily-hub-schedule-row {
+  align-items: center;
+  display: grid;
+  gap: var(--size-4-2);
+  grid-template-columns: auto minmax(50px, 1fr) minmax(80px, 110px) 40px;
+}
+
+.daily-hub-schedule-row input[type="number"] {
+  width: 100%;
+}
+
+.daily-hub-schedule-apply {
+  margin-top: var(--size-4-3);
 }
 
 .daily-hub-rule-section h3 {
