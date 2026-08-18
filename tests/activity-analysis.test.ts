@@ -191,5 +191,7 @@ describe("computer activity analysis", () => {
     expect(normalizeDomain("file:///private/path")).toBeUndefined();
     expect(displayApplicationName("google-chrome")).toBe("Google Chrome");
     expect(displayApplicationName("my_custom-app")).toBe("My Custom App");
+    expect(displayApplicationName("Md.Obsidian")).toBe("Obsidian");
+    expect(displayApplicationName("Org.Vinegarhq.Sober")).toBe("Sober");
   });
 });

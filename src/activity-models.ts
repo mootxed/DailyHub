@@ -17,6 +17,7 @@ export interface ActivityBreakdownItem {
   seconds: number;
   percentage: number;
   domainBreakdown?: ActivityBreakdownItem[];
+  children?: ActivityBreakdownItem[];
 }
 
 export interface DailyComputerActivity {

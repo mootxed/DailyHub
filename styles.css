@@ -235,6 +235,10 @@
   padding: 0 var(--size-4-5);
 }
 
+.daily-hub-header-hud.is-no-goals {
+  grid-template-columns: minmax(120px, 240px) minmax(180px, 1fr);
+}
+
 .daily-hub-hud-metric,
 .daily-hub-hud-status {
   border-right: 1px solid rgb(255 255 255 / 12%);
@@ -481,6 +485,24 @@
   font-weight: var(--font-semibold);
 }
 
+.daily-hub-plan-empty {
+  align-items: flex-start;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.daily-hub-text-action {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  color: var(--dh-brand-hover);
+  font-size: var(--font-ui-small);
+  height: auto;
+  margin-top: 4px;
+  padding: 2px 0;
+}
+
 .daily-hub-progress {
   accent-color: var(--dh-brand-bright);
   appearance: none;
@@ -724,6 +746,32 @@
   height: 42px;
   justify-content: center;
   width: 42px;
+}
+
+.daily-hub-empty.is-compact {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px var(--size-4-3);
+  padding: 0;
+  text-align: left;
+}
+
+.daily-hub-empty.is-compact h3,
+.daily-hub-empty.is-compact p {
+  margin: 0;
+}
+
+.daily-hub-empty.is-compact p {
+  flex: 1 1 240px;
+  max-width: none;
+}
+
+.daily-hub-bento-goals.is-empty {
+  min-height: 118px;
 }
 
 .daily-hub-goals {
@@ -1568,7 +1616,27 @@
 
 .daily-hub-activity-breakdown-list {
   display: grid;
-  gap: var(--size-4-3);
+  gap: 3px;
+}
+
+.daily-hub-activity-breakdown-item {
+  border-radius: var(--dh-radius-sm);
+  padding: 7px 8px;
+}
+
+.daily-hub-activity-breakdown-item.is-clickable {
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.daily-hub-activity-breakdown-item.is-clickable:hover,
+.daily-hub-activity-breakdown-item.is-clickable:focus-visible {
+  background: var(--dh-surface-muted);
+  outline: none;
+}
+
+.daily-hub-activity-breakdown-item.is-clickable:focus-visible {
+  box-shadow: 0 0 0 2px var(--dh-brand-bright);
 }
 
 .daily-hub-activity-breakdown-heading,
@@ -1585,12 +1653,17 @@
   justify-content: space-between;
 }
 
-.daily-hub-activity-breakdown-heading > span,
+.daily-hub-activity-breakdown-meta,
 .daily-hub-activity-domain strong {
+  align-items: center;
   color: var(--dh-text-muted);
+  display: flex;
   font-size: var(--font-ui-small);
   font-variant-numeric: tabular-nums;
+  gap: 3px;
 }
+
+.daily-hub-activity-row-chevron svg { height: 14px; width: 14px; }
 
 .daily-hub-activity-breakdown-name { gap: 8px; min-width: 0; }
 .daily-hub-activity-breakdown-name strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1631,7 +1704,6 @@
 
 .daily-hub-activity-drilldown-button svg { height: 13px; width: 13px; }
 .daily-hub-activity-domains { border-left: 2px solid var(--dh-border); display: grid; gap: 5px; margin: 5px 0 0 5px; padding-left: 14px; }
-.daily-hub-activity-details-button { background: transparent; border-color: var(--dh-border); color: var(--dh-text-muted); font-size: var(--font-ui-smaller); height: auto; margin-top: 5px; padding: 3px 8px; }
 .daily-hub-activity-view-all { background: transparent; border: 0; box-shadow: none; color: var(--dh-brand-hover); font-size: var(--font-ui-small); height: auto; margin-top: var(--size-4-3); padding: 3px 0; }
 .daily-hub-activity-details-summary { display: grid; margin-bottom: var(--size-4-5); }
 .daily-hub-activity-details-summary strong { font-size: 28px; }
@@ -1640,16 +1712,121 @@
 .daily-hub-activity-detail-row strong { font-variant-numeric: tabular-nums; }
 
 .daily-hub-day-timeline-scroll {
-  min-width: 620px;
-  overflow: visible;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
 }
 
-.daily-hub-day-timeline { overflow-x: auto; }
-.daily-hub-day-timeline-axis { color: var(--dh-text-muted); display: flex; font-size: 11px; justify-content: space-between; }
-.daily-hub-day-timeline-track { background: var(--dh-surface-muted); border: 1px solid var(--dh-border); border-radius: 3px; height: 54px; margin-top: 5px; overflow: hidden; position: relative; }
-.daily-hub-day-timeline-segment { align-items: center; background: var(--dh-activity-color); color: #fff; display: flex; height: 100%; min-width: 2px; overflow: hidden; padding: 0 5px; position: absolute; top: 0; }
-.daily-hub-day-timeline-segment span { font-size: 11px; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 1px 1px rgb(0 0 0 / 35%); white-space: nowrap; }
-.daily-hub-timeline-note { margin-bottom: 0; }
+.daily-hub-day-timeline { overflow: hidden; }
+
+.daily-hub-day-timeline-content {
+  min-width: 600px;
+}
+
+.daily-hub-day-timeline-axis,
+.daily-hub-day-timeline-row {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(100px, 128px) minmax(480px, 1fr);
+}
+
+.daily-hub-day-timeline-axis {
+  color: var(--dh-text-muted);
+  font-size: 10px;
+  height: 17px;
+}
+
+.daily-hub-day-timeline-axis > div {
+  position: relative;
+}
+
+.daily-hub-day-timeline-axis > div > span {
+  font-variant-numeric: tabular-nums;
+  position: absolute;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.daily-hub-day-timeline-axis > div > span:first-child { transform: none; }
+.daily-hub-day-timeline-axis > div > span:last-child { transform: translateX(-100%); }
+
+.daily-hub-day-timeline-row {
+  align-items: center;
+}
+
+.daily-hub-day-timeline-row.is-overview {
+  margin-bottom: 9px;
+}
+
+.daily-hub-day-timeline-label {
+  color: var(--dh-text-muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.daily-hub-day-timeline-row.is-overview .daily-hub-day-timeline-label {
+  font-size: 10px;
+  font-weight: var(--font-semibold);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.daily-hub-day-timeline-overview,
+.daily-hub-day-timeline-lane {
+  background: color-mix(in srgb, var(--dh-surface-muted) 72%, transparent);
+  border: 1px solid color-mix(in srgb, var(--dh-border) 72%, transparent);
+  border-radius: 3px;
+  overflow: hidden;
+  position: relative;
+}
+
+.daily-hub-day-timeline-overview { height: 14px; }
+.daily-hub-day-timeline-lane { height: 14px; }
+
+.daily-hub-day-timeline-lanes {
+  display: grid;
+  gap: 5px;
+}
+
+.daily-hub-day-timeline-grid {
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+}
+
+.daily-hub-day-timeline-grid > div {
+  border-left: 1px solid color-mix(in srgb, var(--dh-border) 58%, transparent);
+  height: 100%;
+  position: absolute;
+  top: 0;
+}
+
+.daily-hub-day-timeline-segment {
+  background: var(--dh-activity-color);
+  border: 0;
+  border-radius: 2px;
+  box-shadow: none;
+  height: 100%;
+  min-width: 2px;
+  padding: 0;
+  position: absolute;
+  top: 0;
+}
+
+button.daily-hub-day-timeline-segment:not(:disabled) { cursor: pointer; }
+button.daily-hub-day-timeline-segment:disabled { opacity: 1; }
+button.daily-hub-day-timeline-segment:focus-visible {
+  outline: 2px solid var(--dh-text);
+  outline-offset: 1px;
+  z-index: 2;
+}
+
+.daily-hub-timeline-note {
+  font-size: var(--font-ui-smaller);
+  margin: 10px 0 0;
+}
 
 .daily-hub-long-term {
   display: contents;
@@ -1809,6 +1986,7 @@
   .daily-hub-bento-day,
   .daily-hub-bento-plan,
   .daily-hub-bento-metric { grid-column: span 3; }
+  .daily-hub-bento.is-no-goals .daily-hub-bento-metric { grid-column: span 2; }
   .daily-hub-bento-heatmap { grid-column: span 4; }
   .daily-hub-bento-week,
   .daily-hub-bento-consistency { grid-column: span 2; }
@@ -1823,6 +2001,7 @@
   .daily-hub-bento-goals { grid-column: 1 / -1; }
   .daily-hub-bento-consistency { grid-column: span 4; }
   .daily-hub-bento-metric { grid-column: span 3; }
+  .daily-hub-bento.is-no-goals .daily-hub-bento-metric { grid-column: span 4; }
 }
 
 @container (min-width: 760px) {
@@ -1903,7 +2082,13 @@
   .daily-hub-bento-breakdown,
   .daily-hub-line-chart-card,
   .daily-hub-bento-heatmap,
-  .daily-hub-bento-consistency { padding: var(--size-4-3); }
+  .daily-hub-bento-consistency,
+  .daily-hub-activity-breakdown,
+  .daily-hub-day-timeline { padding: var(--size-4-3); }
+
+  .daily-hub-day-timeline-content { min-width: 520px; }
+  .daily-hub-day-timeline-axis,
+  .daily-hub-day-timeline-row { grid-template-columns: 86px minmax(420px, 1fr); }
 
   .daily-hub-summary,
   .daily-hub-week-summary { gap: var(--size-4-4); }

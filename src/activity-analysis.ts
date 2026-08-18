@@ -33,8 +33,11 @@ const DISPLAY_APPLICATIONS = new Map<string, string>([
   ["code", "Visual Studio Code"],
   ["visual studio code", "Visual Studio Code"],
   ["kitty", "Kitty"],
-  ["obsidian", "Obsidian"]
+  ["obsidian", "Obsidian"],
+  ["md.obsidian", "Obsidian"],
+  ["org.vinegarhq.sober", "Sober"]
 ]);
+const BUNDLE_PREFIXES = new Set(["app", "com", "dev", "io", "md", "net", "org"]);
 const WINDOW_HEARTBEAT_GAP_MS = 15_000;
 
 function stringValue(event: ActivityEvent | undefined, key: string): string | undefined {
@@ -139,7 +142,11 @@ export function displayApplicationName(application: string): string {
   const identity = normalizeIdentity(trimmed);
   const normalized = DISPLAY_APPLICATIONS.get(identity);
   if (normalized !== undefined) return normalized;
-  return trimmed.replace(/[-_]+/g, " ").replace(/\b\w/g, (letter) => letter.toLocaleUpperCase());
+  const components = trimmed.split(".").filter((component) => component.length > 0);
+  const candidate = components.length > 1 && BUNDLE_PREFIXES.has(components[0]?.toLocaleLowerCase() ?? "")
+    ? components.at(-1) ?? trimmed
+    : trimmed;
+  return candidate.replace(/[-_]+/g, " ").replace(/\b\w/g, (letter) => letter.toLocaleUpperCase());
 }
 
 function ruleMatches(rule: ActivityCategoryRule, segment: ComputerActivitySegment): boolean {

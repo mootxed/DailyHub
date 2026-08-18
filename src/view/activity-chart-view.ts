@@ -67,7 +67,9 @@ export function buildComputerActivityChartSeries(
 }
 
 export function renderActivityChartView(container: HTMLElement, options: ActivityChartViewOptions): void {
-  const mode = options.mode ?? "goals";
+  const hasGoals = options.goals.some((goal) => goal.enabled);
+  const requestedMode = options.mode ?? (hasGoals ? "goals" : "apps");
+  const mode = !hasGoals && requestedMode === "goals" ? "apps" : requestedMode;
   const allSeries = mode === "goals"
     ? buildActivityChartSeries(options.goals, options.days.map((day) => ({
       dateKey: day.key,
@@ -82,7 +84,8 @@ export function renderActivityChartView(container: HTMLElement, options: Activit
   headingCopy.createEl("h2", { text: "Activity over time", cls: "daily-hub-section-title" });
   if (options.setMode !== undefined) {
     const tabs = heading.createDiv({ cls: "daily-hub-segmented-control", attr: { role: "tablist" } });
-    for (const candidate of ["goals", "apps", "categories"] as const) {
+    const modes: ActivityChartMode[] = hasGoals ? ["goals", "apps", "categories"] : ["apps", "categories"];
+    for (const candidate of modes) {
       const selected = mode === candidate;
       const button = tabs.createEl("button", {
         text: candidate === "goals" ? "Goals" : candidate === "apps" ? "Apps" : "Categories",

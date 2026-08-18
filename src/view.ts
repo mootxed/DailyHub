@@ -15,6 +15,7 @@ import { getGoalColor } from "./activity-chart";
 import {
   formatDuration,
   formatRemainingDuration,
+  getDashboardPresentationState,
   getDayPlan,
   getTotalRemainingSeconds,
   summarizeDay,
@@ -124,6 +125,7 @@ export class DailyHubView extends ItemView {
   private activityBreakdownMode: ActivityBreakdownMode = "apps";
   private dayTimelineMode: DayTimelineMode = "apps";
   private heatmapMode: "completion" | "activity" = "completion";
+  private noGoalDefaultsApplied = false;
 
   constructor(leaf: WorkspaceLeaf, plugin: DailyHubPlugin) {
     super(leaf);
@@ -302,9 +304,18 @@ export class DailyHubView extends ItemView {
     this.goalRuntimeElements.clear();
     this.selectedActivityAvailable = selectedAvailable;
 
+    const enabledGoals = this.plugin.data.goals.filter((goal) => goal.enabled);
+    const presentation = getDashboardPresentationState(enabledGoals.length);
+    if (!presentation.hasGoals && !this.noGoalDefaultsApplied) {
+      this.activityChartMode = presentation.defaultActivityChartMode;
+      this.heatmapMode = presentation.defaultHeatmapMode;
+      this.noGoalDefaultsApplied = true;
+    } else if (presentation.hasGoals) this.noGoalDefaultsApplied = false;
     const daySummary = summarizeDay(this.plugin.data.goals, progress, this.selectedDateKey);
     const plannedProgress = applyScheduleToProgress(this.plugin.data.goals, progress, this.selectedDateKey);
-    const bento = container.createDiv({ cls: "daily-hub-bento" });
+    const bento = container.createDiv({
+      cls: `daily-hub-bento${presentation.hasGoals ? "" : " is-no-goals"}`
+    });
 
     const header = bento.createDiv({ cls: "daily-hub-header daily-hub-bento-header" });
     const headerTop = header.createDiv({ cls: "daily-hub-header-top" });
@@ -324,15 +335,20 @@ export class DailyHubView extends ItemView {
     add.createSpan({ text: "Add goal" });
     add.addEventListener("click", () => new GoalEditorModal(this.plugin).open());
 
-    const hud = header.createDiv({ cls: "daily-hub-header-hud", attr: { "aria-label": "Daily Hub status" } });
+    const hud = header.createDiv({
+      cls: `daily-hub-header-hud${presentation.hasGoals ? "" : " is-no-goals"}`,
+      attr: { "aria-label": "Daily Hub status" }
+    });
     this.renderHudMetric(hud, computerActivity.available
       ? formatDuration(computerActivity.activeComputerSeconds) : "—", "active");
-    this.renderHudMetric(hud, selectedAvailable ? formatDuration(daySummary.totalActiveSeconds) : "—", "goals");
-    this.renderHudMetric(
-      hud,
-      selectedAvailable ? `${daySummary.completedGoals} / ${daySummary.goalCount}` : "—",
-      "done"
-    );
+    if (presentation.hasGoals) {
+      this.renderHudMetric(hud, selectedAvailable ? formatDuration(daySummary.totalActiveSeconds) : "—", "goals");
+      this.renderHudMetric(
+        hud,
+        selectedAvailable ? `${daySummary.completedGoals} / ${daySummary.goalCount}` : "—",
+        "done"
+      );
+    }
     const connection = hud.createDiv({ cls: `daily-hub-hud-status is-${status.kind}` });
     connection.createEl("span", { cls: "daily-hub-status-dot", attr: { "aria-hidden": "true" } });
     const connectionCopy = connection.createDiv();
@@ -362,25 +378,27 @@ export class DailyHubView extends ItemView {
       text: computerActivity.available ? formatDuration(computerActivity.activeComputerSeconds) : "—"
     });
     active.createEl("span", { text: "active computer" });
-    const goalTracking = summary.createDiv({ cls: "daily-hub-summary-item" });
-    goalTracking.createEl("strong", {
-      text: selectedAvailable ? formatDuration(daySummary.totalActiveSeconds) : "—"
-    });
-    goalTracking.createEl("span", {
-      text: "goal tracking",
-      attr: { title: "Goal tracking may overlap foreground computer activity, for example while a passive browser goal continues in the background." }
-    });
-    const completed = summary.createDiv({ cls: "daily-hub-summary-item" });
-    completed.createEl("strong", {
-      text: selectedAvailable ? `${daySummary.completedGoals} / ${daySummary.goalCount}` : "—"
-    });
-    completed.createEl("span", { text: "goals completed" });
+    if (presentation.hasGoals) {
+      const goalTracking = summary.createDiv({ cls: "daily-hub-summary-item" });
+      goalTracking.createEl("strong", {
+        text: selectedAvailable ? formatDuration(daySummary.totalActiveSeconds) : "—"
+      });
+      goalTracking.createEl("span", {
+        text: "goal tracking",
+        attr: { title: "Goal tracking may overlap foreground computer activity, for example while a passive browser goal continues in the background." }
+      });
+      const completed = summary.createDiv({ cls: "daily-hub-summary-item" });
+      completed.createEl("strong", {
+        text: selectedAvailable ? `${daySummary.completedGoals} / ${daySummary.goalCount}` : "—"
+      });
+      completed.createEl("span", { text: "goals completed" });
+    }
     if (selectedAvailable && daySummary.goalCount > 0 && daySummary.completedGoals === daySummary.goalCount) {
       const complete = overview.createDiv({ cls: "daily-hub-all-complete" });
       const completeIcon = complete.createSpan({ attr: { "aria-hidden": "true" } });
       setIcon(completeIcon, "check-circle-2");
       complete.createSpan({ text: "All goals completed" });
-    } else if (daySummary.goalCount === 0) {
+    } else if (presentation.hasGoals && daySummary.goalCount === 0) {
       overview.createEl("div", {
         text: daySummary.trackedGoalCount === 0 ? "Not tracked yet" : "No goals scheduled",
         cls: "daily-hub-rest-day"
@@ -428,13 +446,11 @@ export class DailyHubView extends ItemView {
     goalsHeader.createEl("div", { text: "Current actions", cls: "daily-hub-kicker" });
     goalsHeader.createEl("h2", { text: "Goals", cls: "daily-hub-section-title" });
 
-    const enabledGoals = this.plugin.data.goals.filter((goal) => goal.enabled);
     if (enabledGoals.length === 0) {
-      const empty = goalsTile.createDiv({ cls: "daily-hub-empty" });
-      const icon = empty.createDiv({ cls: "daily-hub-empty-icon", attr: { "aria-hidden": "true" } });
-      setIcon(icon, "list-plus");
+      goalsTile.addClass("is-empty");
+      const empty = goalsTile.createDiv({ cls: "daily-hub-empty is-compact" });
       empty.createEl("h3", { text: "No goals yet" });
-      empty.createEl("p", { text: "Create your first automatic Daily Hub goal and connect it to an app, window, or website." });
+      empty.createEl("p", { text: "Track recurring activities automatically." });
       const emptyAdd = empty.createEl("button", { cls: "daily-hub-primary-button" });
       const emptyAddIcon = emptyAdd.createSpan({ attr: { "aria-hidden": "true" } });
       setIcon(emptyAddIcon, "plus");
@@ -465,18 +481,21 @@ export class DailyHubView extends ItemView {
       setMode: (mode) => {
         this.dayTimelineMode = mode;
         void this.refresh();
-      }
+      },
+      openDetails: (item, mode) => new ActivityDetailsModal(this.plugin, computerActivity, item, mode).open()
     });
 
     const analyticsLayout = bento.createDiv({ cls: "daily-hub-bento-analytics" });
     this.renderActivityChart(analyticsLayout, week);
     const analyticsRail = analyticsLayout.createDiv({ cls: "daily-hub-analytics-rail" });
     this.renderWeek(analyticsRail, week, weeklyAnalytics);
-    const breakdown = analyticsRail.createDiv({ cls: "daily-hub-bento-breakdown daily-hub-panel" });
-    const breakdownHeading = breakdown.createDiv({ cls: "daily-hub-section-heading" });
-    breakdownHeading.createEl("div", { text: "This week", cls: "daily-hub-kicker" });
-    breakdownHeading.createEl("h2", { text: "Goal breakdown", cls: "daily-hub-section-title" });
-    this.renderGoalBreakdown(breakdown, weeklyAnalytics.goals, false);
+    if (presentation.showGoalAnalytics) {
+      const breakdown = analyticsRail.createDiv({ cls: "daily-hub-bento-breakdown daily-hub-panel" });
+      const breakdownHeading = breakdown.createDiv({ cls: "daily-hub-section-heading" });
+      breakdownHeading.createEl("div", { text: "This week", cls: "daily-hub-kicker" });
+      breakdownHeading.createEl("h2", { text: "Goal breakdown", cls: "daily-hub-section-title" });
+      this.renderGoalBreakdown(breakdown, weeklyAnalytics.goals, false);
+    }
     this.longTermSection = bento.createDiv({ cls: "daily-hub-long-term" });
     this.renderLongTermContent(today);
     this.updateGoalRuntimeStates();
@@ -550,6 +569,19 @@ export class DailyHubView extends ItemView {
       : `Plan for ${new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date)}`;
     section.createEl("h2", { text: heading, cls: "daily-hub-section-title" });
 
+    if (!this.plugin.data.goals.some((goal) => goal.enabled)) {
+      const empty = section.createDiv({ cls: "daily-hub-plan-empty" });
+      empty.createEl("strong", { text: "No goals planned" });
+      empty.createEl("span", { text: "Add a goal to start tracking recurring activities.", cls: "daily-hub-muted" });
+      const add = empty.createEl("button", {
+        text: "Add goal →",
+        cls: "daily-hub-text-action",
+        attr: { type: "button" }
+      });
+      add.addEventListener("click", () => new GoalEditorModal(this.plugin).open());
+      return;
+    }
+
     const plan = getDayPlan(this.plugin.data.goals, progress, this.selectedDateKey);
     if (plan.length === 0) {
       const hasTrackedGoals = this.plugin.data.goals.some((goal) => (
@@ -620,6 +652,7 @@ export class DailyHubView extends ItemView {
     week: WeekDayData[],
     analytics: WeeklyAnalytics
   ): void {
+    const hasGoals = this.plugin.data.goals.some((goal) => goal.enabled);
     const section = container.createDiv({ cls: "daily-hub-week daily-hub-panel daily-hub-bento-week" });
     const heading = section.createDiv({ cls: "daily-hub-section-heading" });
     heading.createEl("div", { text: "Progress", cls: "daily-hub-kicker" });
@@ -632,17 +665,28 @@ export class DailyHubView extends ItemView {
       text: computer.availableDays > 0 ? formatDuration(computer.totalSeconds) : "—"
     });
     computerTotal.createEl("span", { text: "active computer" });
-    const total = summary.createDiv({ cls: "daily-hub-summary-item" });
-    total.createEl("strong", { text: formatDuration(analytics.totalActiveSeconds) });
-    total.createEl("span", { text: analytics.unavailableDays > 0 ? "goal tracking (partial)" : "goal tracking" });
-    const average = summary.createDiv({ cls: "daily-hub-summary-item" });
-    average.createEl("strong", {
-      text: analytics.dailyAverageSeconds === undefined ? "—" : formatDuration(analytics.dailyAverageSeconds)
-    });
-    average.createEl("span", { text: "daily average" });
-    const completed = summary.createDiv({ cls: "daily-hub-summary-item" });
-    completed.createEl("strong", { text: `${analytics.completedGoals} / ${analytics.goalOpportunities}` });
-    completed.createEl("span", { text: "completed goals" });
+    if (hasGoals) {
+      const total = summary.createDiv({ cls: "daily-hub-summary-item" });
+      total.createEl("strong", { text: formatDuration(analytics.totalActiveSeconds) });
+      total.createEl("span", { text: analytics.unavailableDays > 0 ? "goal tracking (partial)" : "goal tracking" });
+      const average = summary.createDiv({ cls: "daily-hub-summary-item" });
+      average.createEl("strong", {
+        text: analytics.dailyAverageSeconds === undefined ? "—" : formatDuration(analytics.dailyAverageSeconds)
+      });
+      average.createEl("span", { text: "daily average" });
+      const completed = summary.createDiv({ cls: "daily-hub-summary-item" });
+      completed.createEl("strong", { text: `${analytics.completedGoals} / ${analytics.goalOpportunities}` });
+      completed.createEl("span", { text: "completed goals" });
+    } else {
+      const average = summary.createDiv({ cls: "daily-hub-summary-item" });
+      average.createEl("strong", {
+        text: computer.averageSeconds === undefined ? "—" : formatDuration(computer.averageSeconds)
+      });
+      average.createEl("span", { text: "daily active average" });
+      const top = summary.createDiv({ cls: "daily-hub-summary-item" });
+      top.createEl("strong", { text: computer.topApplication?.label ?? "—" });
+      top.createEl("span", { text: "top app" });
+    }
 
     const days = section.createDiv({ cls: "daily-hub-week-days" });
 
@@ -653,6 +697,10 @@ export class DailyHubView extends ItemView {
         : summarizeDay(this.plugin.data.goals, day.progress, day.key);
       const dayState = day.future
         ? "is-future"
+        : !day.computerActivity.available
+        ? "is-unavailable"
+        : !hasGoals
+        ? day.computerActivity.activeComputerSeconds > 0 ? "is-partial" : "is-rest"
         : daySummary === undefined
         ? "is-unavailable"
         : daySummary.trackedGoalCount === 0 || daySummary.goalCount === 0
@@ -676,8 +724,14 @@ export class DailyHubView extends ItemView {
       button.createEl("strong", { text: String(day.date.getDate()) });
       if (day.future) {
         button.createEl("span", { text: "Future", cls: "daily-hub-week-stat daily-hub-muted" });
-      } else if (daySummary === undefined) {
+      } else if (!day.computerActivity.available || daySummary === undefined) {
         button.createEl("span", { text: "Unavailable", cls: "daily-hub-week-stat daily-hub-muted" });
+      } else if (!hasGoals) {
+        button.createEl("span", {
+          text: formatDuration(day.computerActivity.activeComputerSeconds),
+          cls: "daily-hub-week-stat"
+        });
+        button.createEl("span", { text: "Active", cls: "daily-hub-week-stat daily-hub-muted" });
       } else {
         button.createEl("span", {
           text: formatDuration(daySummary.totalActiveSeconds),
@@ -721,6 +775,7 @@ export class DailyHubView extends ItemView {
     const section = this.longTermSection;
     if (section === undefined) return;
     section.empty();
+    const hasGoals = this.plugin.data.goals.some((goal) => goal.enabled);
 
     const analytics = this.getLongTermAnalytics(toLocalDateKey(today));
     const computer = this.getLongTermComputerAnalytics(toLocalDateKey(today));
@@ -733,7 +788,7 @@ export class DailyHubView extends ItemView {
       const unavailable = section.createDiv({ cls: "daily-hub-analytics-notice daily-hub-panel" });
       unavailable.createEl("p", { text: "30-day analytics unavailable", cls: "daily-hub-muted", attr: { role: "status" } });
       this.renderLongTermHeatmap(section, analytics, computer);
-      this.renderLongTermConsistency(section, analytics);
+      if (hasGoals) this.renderLongTermConsistency(section, analytics);
       return;
     }
 
@@ -749,14 +804,16 @@ export class DailyHubView extends ItemView {
         : `${computer.topApplication.label} · ${formatDuration(computer.topApplication.seconds)}`,
       "Most used app"
     );
-    this.renderLongTermMetric(section, formatDuration(analytics.totalSeconds), "Goal tracking");
-    this.renderLongTermMetric(
-      section,
-      analytics.completionRate === undefined ? "—" : `${Math.round(analytics.completionRate * 100)}%`,
-      "Goal completion"
-    );
+    if (hasGoals) {
+      this.renderLongTermMetric(section, formatDuration(analytics.totalSeconds), "Goal tracking");
+      this.renderLongTermMetric(
+        section,
+        analytics.completionRate === undefined ? "—" : `${Math.round(analytics.completionRate * 100)}%`,
+        "Goal completion"
+      );
+    }
     this.renderLongTermHeatmap(section, analytics, computer);
-    this.renderLongTermConsistency(section, analytics);
+    if (hasGoals) this.renderLongTermConsistency(section, analytics);
   }
 
   private renderLongTermHeatmap(

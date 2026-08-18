@@ -4,7 +4,7 @@ import type { ActivityBreakdownMode } from "./view/activity-breakdown-view";
 import type DailyHubPlugin from "./main";
 import { createEmptyActivityCategory, createEmptyGoal, createId } from "./models";
 import { GoalEditorModal } from "./goal-editor";
-import { formatDuration } from "./dashboard";
+import { formatActivityDuration } from "./timeline-presentation";
 
 interface ActivitySession {
   startMs: number;
@@ -12,9 +12,10 @@ interface ActivitySession {
 }
 
 function matches(segment: ComputerActivitySegment, item: ActivityBreakdownItem, mode: ActivityBreakdownMode): boolean {
-  if (mode === "apps") return segment.application === item.id;
-  if (mode === "sites") return segment.domain === item.id;
-  return (segment.categoryId ?? "uncategorized") === item.id;
+  const ids = new Set(item.children?.map((child) => child.id) ?? [item.id]);
+  if (mode === "apps") return ids.has(segment.application);
+  if (mode === "sites") return segment.domain !== undefined && ids.has(segment.domain);
+  return ids.has(segment.categoryId ?? "uncategorized");
 }
 
 function sessionsFor(
@@ -50,7 +51,7 @@ export class ActivityDetailsModal extends Modal {
     this.contentEl.addClass("daily-hub-modal", "daily-hub-activity-details");
     this.setTitle(this.item.label);
     const summary = this.contentEl.createDiv({ cls: "daily-hub-activity-details-summary" });
-    summary.createEl("strong", { text: formatDuration(this.item.seconds) });
+    summary.createEl("strong", { text: formatActivityDuration(this.item.seconds) });
     summary.createEl("span", { text: "Today" });
 
     if (this.item.domainBreakdown !== undefined) {
@@ -58,7 +59,16 @@ export class ActivityDetailsModal extends Modal {
       for (const domain of this.item.domainBreakdown.slice(0, 8)) {
         const row = this.contentEl.createDiv({ cls: "daily-hub-activity-detail-row" });
         row.createEl("span", { text: domain.label });
-        row.createEl("strong", { text: formatDuration(domain.seconds) });
+        row.createEl("strong", { text: formatActivityDuration(domain.seconds) });
+      }
+    }
+
+    if (this.item.children !== undefined) {
+      this.contentEl.createEl("h3", { text: "Included activity" });
+      for (const child of this.item.children) {
+        const row = this.contentEl.createDiv({ cls: "daily-hub-activity-detail-row" });
+        row.createEl("span", { text: child.label });
+        row.createEl("strong", { text: formatActivityDuration(child.seconds) });
       }
     }
 
@@ -67,7 +77,7 @@ export class ActivityDetailsModal extends Modal {
     for (const session of sessions.slice(0, 20)) {
       const row = this.contentEl.createDiv({ cls: "daily-hub-activity-detail-row" });
       row.createEl("span", { text: `${time(session.startMs)}–${time(session.endMs)}` });
-      row.createEl("strong", { text: formatDuration((session.endMs - session.startMs) / 1000) });
+      row.createEl("strong", { text: formatActivityDuration((session.endMs - session.startMs) / 1000) });
     }
     if (sessions.length > 20) {
       this.contentEl.createEl("p", { text: `${sessions.length - 20} more sessions`, cls: "daily-hub-muted" });

@@ -222,3 +222,20 @@ export function formatDuration(totalSeconds: number): string {
 export function formatRemainingDuration(totalSeconds: number): string {
   return formatDuration(Math.ceil(Math.max(0, totalSeconds) / 60) * 60);
 }
+
+export interface DashboardPresentationState {
+  hasGoals: boolean;
+  defaultActivityChartMode: "goals" | "apps";
+  defaultHeatmapMode: "completion" | "activity";
+  showGoalAnalytics: boolean;
+}
+
+export function getDashboardPresentationState(enabledGoalCount: number): DashboardPresentationState {
+  const hasGoals = enabledGoalCount > 0;
+  return {
+    hasGoals,
+    defaultActivityChartMode: hasGoals ? "goals" : "apps",
+    defaultHeatmapMode: hasGoals ? "completion" : "activity",
+    showGoalAnalytics: hasGoals
+  };
+}

@@ -1,8 +1,8 @@
 import { setIcon } from "obsidian";
 import type { ActivityBreakdownItem, DailyComputerActivity } from "../activity-models";
 import { getGoalColor } from "../activity-chart";
-import { formatDuration } from "../dashboard";
 import type { ActivityCategory } from "../models";
+import { formatActivityDuration } from "../timeline-presentation";
 
 export type ActivityBreakdownMode = "apps" | "sites" | "categories";
 
@@ -15,7 +15,7 @@ export interface ActivityBreakdownViewOptions {
   openDetails?: (item: ActivityBreakdownItem, mode: ActivityBreakdownMode) => void;
 }
 
-const TOP_ITEM_COUNT = 7;
+const TOP_ITEM_COUNT = 5;
 
 function displayItems(items: ActivityBreakdownItem[]): ActivityBreakdownItem[] {
   if (items.length <= TOP_ITEM_COUNT) return items;
@@ -27,7 +27,8 @@ function displayItems(items: ActivityBreakdownItem[]): ActivityBreakdownItem[] {
     id: "other",
     label: "Other",
     seconds,
-    percentage: denominator > 0 ? seconds / denominator : 0
+    percentage: denominator > 0 ? seconds / denominator : 0,
+    children: rest
   }];
 }
 
@@ -42,7 +43,7 @@ function renderDomainBreakdown(container: HTMLElement, items: ActivityBreakdownI
   for (const item of displayItems(items)) {
     const row = nested.createDiv({ cls: "daily-hub-activity-domain" });
     row.createEl("span", { text: item.label });
-    row.createEl("strong", { text: formatDuration(item.seconds) });
+    row.createEl("strong", { text: formatActivityDuration(item.seconds) });
   }
 }
 
@@ -84,7 +85,7 @@ export function renderActivityBreakdownView(
 
   const total = section.createDiv({ cls: "daily-hub-activity-total" });
   total.createEl("strong", {
-    text: formatDuration(options.mode === "sites"
+    text: formatActivityDuration(options.mode === "sites"
       ? options.activity.sites.reduce((sum, item) => sum + item.seconds, 0)
       : options.activity.activeComputerSeconds)
   });
@@ -105,15 +106,28 @@ export function renderActivityBreakdownView(
   const renderList = (items: ActivityBreakdownItem[]): void => {
     list.empty();
     for (const item of items) {
-      const row = list.createDiv({ cls: "daily-hub-activity-breakdown-item" });
+      const canOpen = options.openDetails !== undefined;
+      const row = list.createDiv({
+        cls: `daily-hub-activity-breakdown-item${canOpen ? " is-clickable" : ""}`,
+        attr: canOpen ? {
+          role: "button",
+          tabindex: "0",
+          "aria-label": `Open details for ${item.label}`
+        } : {}
+      });
       row.style.setProperty("--dh-activity-color", itemColor(item, options.mode, options.categories));
       const label = row.createDiv({ cls: "daily-hub-activity-breakdown-heading" });
       const name = label.createDiv({ cls: "daily-hub-activity-breakdown-name" });
       name.createEl("span", { cls: "daily-hub-activity-swatch", attr: { "aria-hidden": "true" } });
       name.createEl("strong", { text: item.label });
-      label.createEl("span", {
-        text: `${formatDuration(item.seconds)} · ${Math.round(item.percentage * 100)}%`
+      const meta = label.createDiv({ cls: "daily-hub-activity-breakdown-meta" });
+      meta.createEl("span", {
+        text: `${formatActivityDuration(item.seconds)} · ${Math.round(item.percentage * 100)}%`
       });
+      if (canOpen) {
+        const chevron = meta.createSpan({ cls: "daily-hub-activity-row-chevron", attr: { "aria-hidden": "true" } });
+        setIcon(chevron, "chevron-right");
+      }
       const track = row.createDiv({ cls: "daily-hub-activity-breakdown-track" });
       track.createDiv({
         cls: "daily-hub-activity-breakdown-bar",
@@ -126,10 +140,12 @@ export function renderActivityBreakdownView(
         });
         const icon = toggle.createSpan({ attr: { "aria-hidden": "true" } });
         setIcon(icon, "chevron-right");
-        toggle.createSpan({ text: "Domains" });
+        const count = item.domainBreakdown.length;
+        toggle.createSpan({ text: `${count} ${count === 1 ? "domain" : "domains"}` });
         let expanded = false;
         let detail: HTMLElement | undefined;
-        toggle.addEventListener("click", () => {
+        toggle.addEventListener("click", (event) => {
+          event.stopPropagation();
           expanded = !expanded;
           toggle.setAttribute("aria-expanded", String(expanded));
           setIcon(icon, expanded ? "chevron-down" : "chevron-right");
@@ -140,27 +156,30 @@ export function renderActivityBreakdownView(
           } else detail?.empty();
         });
       }
-      if (item.id !== "other" && options.openDetails !== undefined) {
-        const details = row.createEl("button", {
-          text: "Details",
-          cls: "daily-hub-activity-details-button",
-          attr: { type: "button" }
+      if (canOpen) {
+        const open = (): void => options.openDetails?.(item, options.mode);
+        row.addEventListener("click", (event) => {
+          if ((event.target as HTMLElement).closest(".daily-hub-activity-drilldown-button") === null) open();
         });
-        details.addEventListener("click", () => options.openDetails?.(item, options.mode));
+        row.addEventListener("keydown", (event) => {
+          if (event.target !== row || (event.key !== "Enter" && event.key !== " ")) return;
+          event.preventDefault();
+          open();
+        });
       }
     }
   };
   renderList(displayItems(source));
   if (source.length > TOP_ITEM_COUNT) {
     const viewAll = section.createEl("button", {
-      text: "View all",
+      text: "View all activity →",
       cls: "daily-hub-activity-view-all",
       attr: { type: "button", "aria-expanded": "false" }
     });
     let expanded = false;
     viewAll.addEventListener("click", () => {
       expanded = !expanded;
-      viewAll.setText(expanded ? "Show top" : "View all");
+      viewAll.setText(expanded ? "Show top activity ↑" : "View all activity →");
       viewAll.setAttribute("aria-expanded", String(expanded));
       renderList(expanded ? source : displayItems(source));
     });

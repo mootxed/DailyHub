@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatDuration,
   formatRemainingDuration,
+  getDashboardPresentationState,
   getDayPlan,
   getRemainingGoals,
   getTotalRemainingSeconds,
@@ -49,6 +50,21 @@ function progress(goalId: string, activeSeconds: number, completed: boolean): Go
 }
 
 describe("dashboard summaries", () => {
+  it("uses activity-first defaults and omits goal-only analytics when no goals are enabled", () => {
+    expect(getDashboardPresentationState(0)).toEqual({
+      hasGoals: false,
+      defaultActivityChartMode: "apps",
+      defaultHeatmapMode: "activity",
+      showGoalAnalytics: false
+    });
+    expect(getDashboardPresentationState(1)).toEqual({
+      hasGoals: true,
+      defaultActivityChartMode: "goals",
+      defaultHeatmapMode: "completion",
+      showGoalAnalytics: true
+    });
+  });
+
   it("sums single-attribution study time and only enabled goal completion", () => {
     expect(summarizeDay(goals, [
       progress("devops", 3_600, true),

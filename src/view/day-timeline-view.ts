@@ -1,7 +1,13 @@
-import type { DailyComputerActivity } from "../activity-models";
-import { getGoalColor } from "../activity-chart";
-import { formatDuration } from "../dashboard";
+import type { ActivityBreakdownItem, DailyComputerActivity } from "../activity-models";
+import { getGoalColor, getGoalColorIndex, GOAL_COLOR_COUNT } from "../activity-chart";
 import type { ActivityCategory } from "../models";
+import {
+  buildTimelineLanes,
+  formatActivityDuration,
+  getVisibleTimelineRange,
+  type TimelineLane,
+  type TimelinePresentationSegment
+} from "../timeline-presentation";
 
 export type DayTimelineMode = "apps" | "categories";
 
@@ -10,10 +16,54 @@ export interface DayTimelineViewOptions {
   categories: ActivityCategory[];
   mode: DayTimelineMode;
   setMode: (mode: DayTimelineMode) => void;
+  openDetails?: (item: ActivityBreakdownItem, mode: DayTimelineMode) => void;
 }
 
 function clock(timestamp: number): string {
   return new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(new Date(timestamp));
+}
+
+function segmentTooltip(segment: TimelinePresentationSegment, mode: DayTimelineMode): string {
+  const domain = mode === "apps" && segment.domain !== undefined ? `\n${segment.domain}` : "";
+  return `${segment.label}${domain}\n${clock(segment.startMs)}–${clock(segment.endMs)}\n${formatActivityDuration((segment.endMs - segment.startMs) / 1_000)}`;
+}
+
+function laneItem(lane: TimelineLane, totalSeconds: number): ActivityBreakdownItem {
+  const children = lane.id === "other" ? lane.sourceItems.map((item) => ({
+    ...item,
+    percentage: totalSeconds > 0 ? item.seconds / totalSeconds : 0
+  })) : undefined;
+  return {
+    id: lane.id,
+    label: lane.label,
+    seconds: lane.seconds,
+    percentage: totalSeconds > 0 ? lane.seconds / totalSeconds : 0,
+    ...(children === undefined ? {} : { children })
+  };
+}
+
+function laneColors(
+  lanes: TimelineLane[],
+  mode: DayTimelineMode,
+  categories: ActivityCategory[]
+): Map<string, string> {
+  const result = new Map<string, string>();
+  const categoriesById = new Map(categories.map((category) => [category.id, category]));
+  const used = new Set<number>();
+  for (const lane of lanes) {
+    const configured = mode === "categories" ? categoriesById.get(lane.id)?.colorIndex : undefined;
+    if (configured !== undefined) {
+      result.set(lane.id, getGoalColor(`category:${lane.id}`, configured));
+      used.add(configured);
+      continue;
+    }
+    const preferred = getGoalColorIndex(`${mode}:${lane.id}`);
+    let resolved = preferred;
+    while (used.has(resolved) && used.size < GOAL_COLOR_COUNT) resolved = (resolved + 1) % GOAL_COLOR_COUNT;
+    used.add(resolved);
+    result.set(lane.id, getGoalColor(`${mode}:${lane.id}`, resolved));
+  }
+  return result;
 }
 
 export function renderDayTimelineView(container: HTMLElement, options: DayTimelineViewOptions): void {
@@ -22,7 +72,10 @@ export function renderDayTimelineView(container: HTMLElement, options: DayTimeli
   const copy = heading.createDiv();
   copy.createEl("div", { text: "Today", cls: "daily-hub-kicker" });
   copy.createEl("h2", { text: "Activity timeline", cls: "daily-hub-section-title" });
-  const tabs = heading.createDiv({ cls: "daily-hub-segmented-control", attr: { role: "tablist" } });
+  const tabs = heading.createDiv({
+    cls: "daily-hub-segmented-control",
+    attr: { role: "tablist", "aria-label": "Timeline mode" }
+  });
   for (const mode of ["apps", "categories"] as const) {
     const selected = options.mode === mode;
     const button = tabs.createEl("button", {
@@ -41,36 +94,72 @@ export function renderDayTimelineView(container: HTMLElement, options: DayTimeli
     return;
   }
 
-  const categories = new Map(options.categories.map((category) => [category.id, category]));
-  const start = options.activity.segments[0]?.startMs ?? 0;
-  const end = options.activity.segments.at(-1)?.endMs ?? start;
-  const span = Math.max(end - start, 1);
+  const first = Math.min(...options.activity.segments.map((segment) => segment.startMs));
+  const last = Math.max(...options.activity.segments.map((segment) => segment.endMs));
+  const range = getVisibleTimelineRange(first, last);
+  const span = range.endMs - range.startMs;
+  const presentation = buildTimelineLanes(options.activity.segments, options.mode, options.categories);
+  const colors = laneColors(presentation.lanes, options.mode, options.categories);
   const scroll = section.createDiv({ cls: "daily-hub-day-timeline-scroll" });
-  const axis = scroll.createDiv({ cls: "daily-hub-day-timeline-axis" });
-  axis.createEl("span", { text: clock(start) });
-  axis.createEl("span", { text: clock(end) });
-  const track = scroll.createDiv({
-    cls: "daily-hub-day-timeline-track",
-    attr: { role: "img", "aria-label": "Sequential foreground computer activity" }
-  });
-  for (const segment of options.activity.segments) {
-    const category = segment.categoryId === undefined ? undefined : categories.get(segment.categoryId);
-    const label = options.mode === "categories" ? category?.name ?? "Uncategorized" : segment.displayApplication;
-    const color = options.mode === "categories"
-      ? getGoalColor(`category:${segment.categoryId ?? "uncategorized"}`, category?.colorIndex)
-      : getGoalColor(`application:${segment.application}`);
-    const block = track.createDiv({
+  const content = scroll.createDiv({ cls: "daily-hub-day-timeline-content" });
+  const position = (timestamp: number): number => ((timestamp - range.startMs) / span) * 100;
+  const addGrid = (track: HTMLElement): void => {
+    const grid = track.createDiv({ cls: "daily-hub-day-timeline-grid", attr: { "aria-hidden": "true" } });
+    for (const tick of range.ticks) grid.createDiv({ attr: { style: `left: ${position(tick)}%` } });
+  };
+
+  const axis = content.createDiv({ cls: "daily-hub-day-timeline-axis" });
+  axis.createSpan({ cls: "daily-hub-day-timeline-axis-spacer", attr: { "aria-hidden": "true" } });
+  const tickTrack = axis.createDiv();
+  for (const tick of range.ticks) {
+    tickTrack.createEl("span", { text: clock(tick), attr: { style: `left: ${position(tick)}%` } });
+  }
+
+  const overview = content.createDiv({ cls: "daily-hub-day-timeline-row is-overview" });
+  overview.createEl("span", { text: "Overview", cls: "daily-hub-day-timeline-label" });
+  const overviewTrack = overview.createDiv({ cls: "daily-hub-day-timeline-overview", attr: { "aria-hidden": "true" } });
+  addGrid(overviewTrack);
+  for (const segment of presentation.overviewSegments) {
+    overviewTrack.createDiv({
       cls: "daily-hub-day-timeline-segment",
       attr: {
-        title: `${label}\n${clock(segment.startMs)}–${clock(segment.endMs)}\n${formatDuration((segment.endMs - segment.startMs) / 1000)}`,
-        "aria-label": `${label}, ${clock(segment.startMs)} to ${clock(segment.endMs)}`,
-        style: `left: ${((segment.startMs - start) / span) * 100}%; width: ${((segment.endMs - segment.startMs) / span) * 100}%; --dh-activity-color: ${color}`
+        title: segmentTooltip(segment, options.mode),
+        style: `left: ${position(segment.startMs)}%; width: ${((segment.endMs - segment.startMs) / span) * 100}%; --dh-activity-color: ${colors.get(segment.laneId) ?? getGoalColor(segment.laneId)}`
       }
     });
-    if ((segment.endMs - segment.startMs) / span > 0.06) block.createSpan({ text: label });
+  }
+
+  const lanes = content.createDiv({ cls: "daily-hub-day-timeline-lanes" });
+  for (const lane of presentation.lanes) {
+    const row = lanes.createDiv({ cls: "daily-hub-day-timeline-row" });
+    row.createEl("span", {
+      text: lane.label,
+      cls: "daily-hub-day-timeline-label",
+      attr: { title: `${lane.label}: ${formatActivityDuration(lane.seconds)}` }
+    });
+    const track = row.createDiv({
+      cls: "daily-hub-day-timeline-lane",
+      attr: { role: "group", "aria-label": `${lane.label}, ${formatActivityDuration(lane.seconds)}` }
+    });
+    addGrid(track);
+    const details = laneItem(lane, options.activity.activeComputerSeconds);
+    for (const segment of lane.segments) {
+      const title = segmentTooltip(segment, options.mode);
+      const block = track.createEl("button", {
+        cls: "daily-hub-day-timeline-segment",
+        attr: {
+          type: "button",
+          title,
+          "aria-label": title.replaceAll("\n", ", "),
+          style: `left: ${position(segment.startMs)}%; width: ${((segment.endMs - segment.startMs) / span) * 100}%; --dh-activity-color: ${colors.get(lane.id) ?? getGoalColor(lane.id)}`
+        }
+      });
+      if (options.openDetails === undefined) block.disabled = true;
+      else block.addEventListener("click", () => options.openDetails?.(details, options.mode));
+    }
   }
   section.createEl("p", {
-    text: "Gaps show AFK or time without foreground-window evidence.",
+    text: "Gaps represent AFK or missing foreground activity.",
     cls: "daily-hub-muted daily-hub-timeline-note"
   });
 }
