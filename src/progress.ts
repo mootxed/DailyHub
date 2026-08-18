@@ -25,6 +25,7 @@ export interface TrackingSegment {
 }
 
 export const BROWSER_CONTEXT_GRACE_MS = 120_000;
+export const LIVE_EVENT_FRESHNESS_MS = 15_000;
 
 function parseEvents(
   events: ActivityEvent[],
@@ -320,7 +321,33 @@ export function resolveTrackingAt(
   timestampMs: number,
   lookbackStartMs: number
 ): DailyGoal | undefined {
-  const segment = resolveTrackingTimeline(goals, activity, lookbackStartMs, timestampMs).at(-1);
+  const extendFreshTail = (events: ActivityEvent[]): ActivityEvent[] => {
+    let freshestIndex: number | undefined;
+    let freshestEnd = Number.NEGATIVE_INFINITY;
+    events.forEach((event, index) => {
+      const startMs = Date.parse(event.timestamp);
+      const duration = Number.isFinite(event.duration) ? Math.max(0, event.duration) : 0;
+      const endMs = startMs + duration * 1000;
+      if (duration > 0 && startMs <= timestampMs && endMs > freshestEnd) {
+        freshestIndex = index;
+        freshestEnd = endMs;
+      }
+    });
+    if (freshestIndex === undefined
+      || freshestEnd >= timestampMs
+      || timestampMs - freshestEnd > LIVE_EVENT_FRESHNESS_MS) {
+      return events;
+    }
+    return events.map((event, index) => index === freshestIndex
+      ? { ...event, duration: event.duration + (timestampMs - freshestEnd) / 1000 }
+      : event);
+  };
+  const liveActivity: DayActivity = {
+    windowEvents: extendFreshTail(activity.windowEvents),
+    browserEvents: extendFreshTail(activity.browserEvents),
+    afkEvents: extendFreshTail(activity.afkEvents)
+  };
+  const segment = resolveTrackingTimeline(goals, liveActivity, lookbackStartMs, timestampMs).at(-1);
   if (segment?.endMs !== timestampMs) return undefined;
   return goals.find((goal) => goal.id === segment.goalId);
 }

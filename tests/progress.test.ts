@@ -1326,6 +1326,22 @@ describe("live tracking resolver", () => {
     expect(resolve([typing], day)).toBe("typing");
   });
 
+  it("tolerates a fresh ActivityWatch heartbeat tail", () => {
+    const typing = goal("typing", 30, appRule("kitty"));
+    const day = activity({
+      windowEvents: [event(0, nowOffset - 5, { app: "kitty" })]
+    });
+    expect(resolve([typing], day)).toBe("typing");
+  });
+
+  it("does not treat stale ActivityWatch evidence as live", () => {
+    const typing = goal("typing", 30, appRule("kitty"));
+    const day = activity({
+      windowEvents: [event(0, nowOffset - 16, { app: "kitty" })]
+    });
+    expect(resolve([typing], day)).toBeUndefined();
+  });
+
   it("resolves browser URL activity while another application is foreground", () => {
     const typing = goal("typing", 30, urlRule("keybr.com"));
     const day = activity({
