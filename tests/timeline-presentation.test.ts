@@ -80,6 +80,9 @@ describe("timeline presentation", () => {
     expect(result).toHaveLength(2);
     expect(result[0]?.endMs).toBe(matching.endMs);
     expect(result[1]?.mergeKey).toBe("Chrome");
+
+    const afterVisibleGap = { ...base, startMs: base.endMs + 3_000, endMs: base.endMs + 63_000 };
+    expect(coalesceTimelineSegments([base, afterVisibleGap])).toHaveLength(2);
   });
 
   it("formats tiny and precise activity durations without zero-minute rows", () => {

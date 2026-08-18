@@ -103,10 +103,6 @@ export function renderDayTimelineView(container: HTMLElement, options: DayTimeli
   const scroll = section.createDiv({ cls: "daily-hub-day-timeline-scroll" });
   const content = scroll.createDiv({ cls: "daily-hub-day-timeline-content" });
   const position = (timestamp: number): number => ((timestamp - range.startMs) / span) * 100;
-  const addGrid = (track: HTMLElement): void => {
-    const grid = track.createDiv({ cls: "daily-hub-day-timeline-grid", attr: { "aria-hidden": "true" } });
-    for (const tick of range.ticks) grid.createDiv({ attr: { style: `left: ${position(tick)}%` } });
-  };
 
   const axis = content.createDiv({ cls: "daily-hub-day-timeline-axis" });
   axis.createSpan({ cls: "daily-hub-day-timeline-axis-spacer", attr: { "aria-hidden": "true" } });
@@ -115,33 +111,24 @@ export function renderDayTimelineView(container: HTMLElement, options: DayTimeli
     tickTrack.createEl("span", { text: clock(tick), attr: { style: `left: ${position(tick)}%` } });
   }
 
-  const overview = content.createDiv({ cls: "daily-hub-day-timeline-row is-overview" });
-  overview.createEl("span", { text: "Overview", cls: "daily-hub-day-timeline-label" });
-  const overviewTrack = overview.createDiv({ cls: "daily-hub-day-timeline-overview", attr: { "aria-hidden": "true" } });
-  addGrid(overviewTrack);
-  for (const segment of presentation.overviewSegments) {
-    overviewTrack.createDiv({
-      cls: "daily-hub-day-timeline-segment",
-      attr: {
-        title: segmentTooltip(segment, options.mode),
-        style: `left: ${position(segment.startMs)}%; width: ${((segment.endMs - segment.startMs) / span) * 100}%; --dh-activity-color: ${colors.get(segment.laneId) ?? getGoalColor(segment.laneId)}`
-      }
-    });
-  }
-
-  const lanes = content.createDiv({ cls: "daily-hub-day-timeline-lanes" });
+  const lanes = content.createDiv({ cls: "daily-hub-day-timeline-body" });
+  const grid = lanes.createDiv({ cls: "daily-hub-day-timeline-grid", attr: { "aria-hidden": "true" } });
+  for (const tick of range.ticks) grid.createDiv({ attr: { style: `left: ${position(tick)}%` } });
   for (const lane of presentation.lanes) {
     const row = lanes.createDiv({ cls: "daily-hub-day-timeline-row" });
-    row.createEl("span", {
-      text: lane.label,
+    const color = colors.get(lane.id) ?? getGoalColor(lane.id);
+    row.style.setProperty("--dh-activity-color", color);
+    const label = row.createDiv({
       cls: "daily-hub-day-timeline-label",
       attr: { title: `${lane.label}: ${formatActivityDuration(lane.seconds)}` }
     });
+    label.createSpan({ cls: "daily-hub-day-timeline-swatch", attr: { "aria-hidden": "true" } });
+    label.createEl("strong", { text: lane.label });
+    label.createEl("span", { text: formatActivityDuration(lane.seconds), cls: "daily-hub-day-timeline-duration" });
     const track = row.createDiv({
       cls: "daily-hub-day-timeline-lane",
       attr: { role: "group", "aria-label": `${lane.label}, ${formatActivityDuration(lane.seconds)}` }
     });
-    addGrid(track);
     const details = laneItem(lane, options.activity.activeComputerSeconds);
     for (const segment of lane.segments) {
       const title = segmentTooltip(segment, options.mode);
@@ -151,7 +138,7 @@ export function renderDayTimelineView(container: HTMLElement, options: DayTimeli
           type: "button",
           title,
           "aria-label": title.replaceAll("\n", ", "),
-          style: `left: ${position(segment.startMs)}%; width: ${((segment.endMs - segment.startMs) / span) * 100}%; --dh-activity-color: ${colors.get(lane.id) ?? getGoalColor(lane.id)}`
+          style: `left: ${position(segment.startMs)}%; width: ${((segment.endMs - segment.startMs) / span) * 100}%`
         }
       });
       if (options.openDetails === undefined) block.disabled = true;
@@ -159,7 +146,7 @@ export function renderDayTimelineView(container: HTMLElement, options: DayTimeli
     }
   }
   section.createEl("p", {
-    text: "Gaps represent AFK or missing foreground activity.",
+    text: "Blank space = AFK or missing activity.",
     cls: "daily-hub-muted daily-hub-timeline-note"
   });
 }
