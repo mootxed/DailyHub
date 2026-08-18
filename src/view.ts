@@ -1,17 +1,10 @@
 import { ItemView, setIcon, type WorkspaceLeaf } from "obsidian";
 import {
   calculateRangeAnalytics,
-  getHeatmapLevel,
   type GoalRangeStats,
   type RangeAnalytics
 } from "./analytics";
-import {
-  buildActivityChartSeries,
-  formatChartDuration,
-  getGoalColor,
-  getMaximumChartSeconds,
-  getNiceTimeScale
-} from "./activity-chart";
+import { getGoalColor } from "./activity-chart";
 import {
   formatDuration,
   formatRemainingDuration,
@@ -33,11 +26,12 @@ import {
   toLocalDateKey
 } from "./date";
 import { DayOverrideModal } from "./day-override";
+import { TrackingDiagnosticsModal } from "./diagnostics-view";
 import { GoalEditorModal } from "./goal-editor";
 import { GoalDetailsModal, type GoalDetailsStats } from "./goal-details";
 import { hasGoalTrackingStartedByDate, isGoalPaused } from "./goal-lifecycle";
 import {
-  formatLiveGoalDuration,
+  formatCurrentSessionDuration,
   getGoalRuntimeUiState,
   type GoalProgressState
 } from "./goal-runtime-ui";
@@ -47,12 +41,15 @@ import type {
   ActivityWatchSnapshot,
   ActivityWatchStatus,
   DailyGoal,
+  DayActivity,
   GoalProgress
 } from "./models";
-import { BROWSER_CONTEXT_GRACE_MS, calculateDailyProgress, resolveTrackingAt } from "./progress";
+import { BROWSER_CONTEXT_GRACE_MS, calculateDailyProgress, resolveLiveTrackingState } from "./progress";
 import { calculateRangeProgress, type DayActivityInput } from "./range-progress";
 import { applyScheduleToProgress, type PlannedGoalProgress } from "./schedule";
 import { calculateGoalWeekStats, calculateWeekProgress, type WeekDayActivity } from "./weekly-progress";
+import { renderActivityChartView } from "./view/activity-chart-view";
+import { renderCalendarHeatmap, renderGoalConsistencyView } from "./view/analytics-view";
 
 export const DAILY_HUB_VIEW_TYPE = "daily-hub-view";
 const ACTIVITYWATCH_DOWNLOAD_URL = "https://activitywatch.net/downloads/";
@@ -81,7 +78,6 @@ interface GoalRuntimeElements {
   status: HTMLElement;
   actualTime?: HTMLElement;
   compactTime?: string;
-  liveTime?: string;
   liveEligible: boolean;
   progressShell?: HTMLElement;
   pauseButton?: HTMLButtonElement;
@@ -103,6 +99,8 @@ export class DailyHubView extends ItemView {
   private livePollInFlight = false;
   private viewOpen = false;
   private selectedActivityAvailable = false;
+  private todayActivity: DayActivity | undefined;
+  private readonly hiddenChartGoalIds = new Set<string>();
 
   constructor(leaf: WorkspaceLeaf, plugin: DailyHubPlugin) {
     super(leaf);
@@ -161,6 +159,8 @@ export class DailyHubView extends ItemView {
       if (key !== undefined && result.status === "fulfilled") snapshots.set(key, result.value);
     });
     this.updateLongTermSnapshots(todayKey, snapshots);
+    const todaySnapshot = snapshots.get(todayKey);
+    this.todayActivity = todaySnapshot?.status.kind === "connected" ? todaySnapshot.activity : undefined;
 
     const selectedFuture = isFutureDate(this.selectedDateKey, today);
     const selectedSnapshot = selectedFuture ? undefined : snapshots.get(this.selectedDateKey);
@@ -216,7 +216,6 @@ export class DailyHubView extends ItemView {
       });
     }
 
-    const todaySnapshot = snapshots.get(todayKey);
     if (todaySnapshot !== undefined) {
       const todayProgress = isToday(this.selectedDateKey, today)
         ? selectedProgress
@@ -387,7 +386,9 @@ export class DailyHubView extends ItemView {
       emptyAdd.createSpan({ text: "Add goal" });
       emptyAdd.addEventListener("click", () => new GoalEditorModal(this.plugin).open());
     } else {
-      const goals = goalsTile.createDiv({ cls: "daily-hub-goals" });
+      const goals = goalsTile.createDiv({
+        cls: `daily-hub-goals${enabledGoals.length === 1 ? " is-single-goal" : ""}`
+      });
       const progressByGoal = new Map(
         applyScheduleToProgress(this.plugin.data.goals, progress, this.selectedDateKey)
           .map((item) => [item.goalId, item])
@@ -402,9 +403,11 @@ export class DailyHubView extends ItemView {
       }
     }
 
-    this.renderWeek(bento, week, weeklyAnalytics);
-    this.renderActivityChart(bento, week);
-    const breakdown = bento.createDiv({ cls: "daily-hub-bento-breakdown daily-hub-panel" });
+    const analyticsLayout = bento.createDiv({ cls: "daily-hub-bento-analytics" });
+    this.renderActivityChart(analyticsLayout, week);
+    const analyticsRail = analyticsLayout.createDiv({ cls: "daily-hub-analytics-rail" });
+    this.renderWeek(analyticsRail, week, weeklyAnalytics);
+    const breakdown = analyticsRail.createDiv({ cls: "daily-hub-bento-breakdown daily-hub-panel" });
     const breakdownHeading = breakdown.createDiv({ cls: "daily-hub-section-heading" });
     breakdownHeading.createEl("div", { text: "This week", cls: "daily-hub-kicker" });
     breakdownHeading.createEl("h2", { text: "Goal breakdown", cls: "daily-hub-section-title" });
@@ -624,146 +627,12 @@ export class DailyHubView extends ItemView {
   }
 
   private renderActivityChart(container: HTMLElement, week: WeekDayData[]): void {
-    const goals = this.plugin.data.goals.filter((goal) => goal.enabled);
-    const series = buildActivityChartSeries(goals, week.map((day) => ({
-      dateKey: day.key,
-      future: day.future,
-      progress: day.progress
-    })));
-    const section = container.createDiv({ cls: "daily-hub-line-chart-card daily-hub-panel daily-hub-bento-chart" });
-    const heading = section.createDiv({ cls: "daily-hub-section-heading" });
-    heading.createEl("div", { text: "Activity", cls: "daily-hub-kicker" });
-    heading.createEl("h2", { text: "Activity over time", cls: "daily-hub-section-title" });
-
-    const maximumSeconds = getMaximumChartSeconds(series);
-    if (maximumSeconds === 0) {
-      section.createEl("p", {
-        text: "No tracked activity for this period.",
-        cls: "daily-hub-chart-empty daily-hub-muted"
-      });
-      return;
-    }
-
-    const legend = section.createDiv({
-      cls: "daily-hub-chart-legend",
-      attr: { role: "list", "aria-label": "Goal activity colors" }
+    renderActivityChartView(container, {
+      goals: this.plugin.data.goals.filter((goal) => goal.enabled),
+      days: week,
+      hiddenGoalIds: this.hiddenChartGoalIds,
+      selectDate: (dateKey) => this.selectDate(dateKey)
     });
-    for (const item of series) {
-      const legendItem = legend.createDiv({ cls: "daily-hub-chart-legend-item", attr: { role: "listitem" } });
-      const swatch = legendItem.createSpan({ cls: "daily-hub-chart-swatch", attr: { "aria-hidden": "true" } });
-      swatch.style.setProperty("--dh-goal-color", item.color);
-      legendItem.createSpan({ text: item.goalName });
-    }
-
-    const width = 800;
-    const height = 320;
-    const left = 62;
-    const right = 18;
-    const top = 16;
-    const bottom = 48;
-    const plotWidth = width - left - right;
-    const plotHeight = height - top - bottom;
-    const scale = getNiceTimeScale(maximumSeconds);
-    const scroll = section.createDiv({ cls: "daily-hub-line-chart-scroll" });
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("class", "daily-hub-line-chart");
-    svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-    svg.setAttribute("role", "img");
-    svg.setAttribute("aria-label", "Goal activity over the selected week");
-    scroll.appendChild(svg);
-
-    const createSvg = <K extends keyof SVGElementTagNameMap>(
-      tag: K,
-      attributes: Record<string, string>
-    ): SVGElementTagNameMap[K] => {
-      const element = document.createElementNS("http://www.w3.org/2000/svg", tag);
-      for (const [name, value] of Object.entries(attributes)) element.setAttribute(name, value);
-      svg.appendChild(element);
-      return element;
-    };
-    const xPosition = (index: number): number => left + (
-      week.length <= 1 ? plotWidth / 2 : (index / (week.length - 1)) * plotWidth
-    );
-    const yPosition = (seconds: number): number => top + plotHeight
-      - (seconds / scale.maximumSeconds) * plotHeight;
-
-    const yTitle = createSvg("text", {
-      x: String(left), y: "10",
-      class: "daily-hub-chart-axis-title", "text-anchor": "start"
-    });
-    yTitle.textContent = "Hours";
-
-    for (const tick of scale.ticks) {
-      const y = yPosition(tick);
-      createSvg("line", {
-        x1: String(left), y1: String(y), x2: String(width - right), y2: String(y),
-        class: "daily-hub-chart-grid-line"
-      });
-      const label = createSvg("text", {
-        x: String(left - 10), y: String(y + 4),
-        class: "daily-hub-chart-axis-label", "text-anchor": "end"
-      });
-      label.textContent = formatChartDuration(tick);
-    }
-
-    const dayFormatter = new Intl.DateTimeFormat(undefined, { weekday: "short", day: "numeric" });
-    const fullDateFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: "full" });
-    week.forEach((day, index) => {
-      const x = xPosition(index);
-      createSvg("line", {
-        x1: String(x), y1: String(top), x2: String(x), y2: String(top + plotHeight),
-        class: "daily-hub-chart-grid-line is-vertical"
-      });
-      const label = createSvg("text", {
-        x: String(x), y: String(height - 17),
-        class: `daily-hub-chart-axis-label${day.progress === undefined ? " is-missing" : ""}`,
-        "text-anchor": "middle"
-      });
-      label.textContent = dayFormatter.format(day.date);
-    });
-
-    for (const item of series) {
-      let continuing = false;
-      const pathParts: string[] = [];
-      item.points.forEach((point, index) => {
-        if (point.seconds === null) {
-          continuing = false;
-          return;
-        }
-        const x = xPosition(index);
-        const y = yPosition(point.seconds);
-        pathParts.push(`${continuing ? "L" : "M"} ${x} ${y}`);
-        continuing = true;
-      });
-      const path = createSvg("path", {
-        d: pathParts.join(" "),
-        class: "daily-hub-chart-series",
-        fill: "none"
-      });
-      path.style.setProperty("--dh-goal-color", item.color);
-
-      item.points.forEach((point, index) => {
-        if (point.seconds === null) return;
-        const day = week[index];
-        if (day === undefined) return;
-        const duration = formatDuration(point.seconds);
-        const dateLabel = fullDateFormatter.format(day.date);
-        const pointLabel = `${item.goalName}, ${dateLabel}, ${duration}`;
-        const circle = createSvg("circle", {
-          cx: String(xPosition(index)),
-          cy: String(yPosition(point.seconds)),
-          r: "4",
-          class: "daily-hub-chart-point",
-          tabindex: "0",
-          role: "img",
-          "aria-label": pointLabel
-        });
-        circle.style.setProperty("--dh-goal-color", item.color);
-        const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
-        title.textContent = `${item.goalName}\n${dateLabel}\n${duration}`;
-        circle.appendChild(title);
-      });
-    }
   }
 
   private renderLongTermContent(today: Date): void {
@@ -853,40 +722,7 @@ export class DailyHubView extends ItemView {
     if (includeHeading) {
       container.createEl("h3", { text: "Daily completion", cls: "daily-hub-subsection-title" });
     }
-    const scroll = container.createDiv({ cls: "daily-hub-heatmap-scroll" });
-    const heatmap = scroll.createDiv({ cls: "daily-hub-heatmap", attr: { "aria-label": "30-day goal completion heatmap" } });
-    for (const day of analytics.days) {
-      const date = getLocalDateRange(day.dateKey).start;
-      const dateLabel = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date);
-      const selected = day.dateKey === this.selectedDateKey;
-      const notTracked = day.trackedGoalCount === 0;
-      const restDay = !notTracked && day.goalCount === 0;
-      const neutral = notTracked || restDay;
-      const ratio = day.progressRatio;
-      const available = day.available && ratio !== undefined;
-      const details = notTracked
-        ? "No goals existed yet"
-        : restDay
-        ? "No goals scheduled"
-        : available
-        ? `${formatDuration(day.totalSeconds ?? 0)} studied, ${day.completedGoals ?? 0} of ${day.goalCount} goals completed, ${Math.round(ratio * 100)}% planned progress`
-        : "Activity data unavailable";
-      const label = `${dateLabel}: ${details}`;
-      const tooltip = available
-        ? `${dateLabel}\n${formatDuration(day.totalSeconds ?? 0)}\n${day.completedGoals ?? 0} / ${day.goalCount} completed\n${Math.round(ratio * 100)}%`
-        : `${dateLabel}\n${details}`;
-      const button = heatmap.createEl("button", {
-        text: available ? "" : neutral ? "·" : "—",
-        cls: `daily-hub-heatmap-cell${available ? ` is-level-${getHeatmapLevel(ratio)}` : neutral ? " is-rest" : " is-unavailable"}${selected ? " is-selected" : ""}`,
-        attr: {
-          "aria-label": label,
-          title: tooltip,
-          ...(selected ? { "aria-current": "date" } : {})
-        }
-      });
-      button.disabled = !available && !neutral;
-      if (available || neutral) button.addEventListener("click", () => this.selectDate(day.dateKey));
-    }
+    renderCalendarHeatmap(container, analytics, this.selectedDateKey, (dateKey) => this.selectDate(dateKey));
   }
 
   private renderGoalConsistency(
@@ -897,23 +733,7 @@ export class DailyHubView extends ItemView {
     if (includeHeading) {
       container.createEl("h3", { text: "Goal consistency", cls: "daily-hub-subsection-title" });
     }
-    const list = container.createDiv({ cls: "daily-hub-consistency" });
-    for (const goal of goals) {
-      const card = list.createDiv({ cls: "daily-hub-consistency-card" });
-      card.style.setProperty("--dh-goal-color", getGoalColor(goal.goalId));
-      card.createEl("strong", { text: goal.goalName, cls: "daily-hub-consistency-title" });
-      const metrics = card.createDiv({ cls: "daily-hub-consistency-metrics" });
-      this.renderConsistencyMetric(metrics, formatDuration(goal.totalSeconds), "total");
-      this.renderConsistencyMetric(metrics, `${goal.completedDays} / ${goal.availableDays}`, "completed");
-      this.renderConsistencyMetric(metrics, String(goal.currentStreak), "streak");
-      this.renderConsistencyMetric(metrics, String(goal.bestStreak), "best");
-    }
-  }
-
-  private renderConsistencyMetric(container: HTMLElement, value: string, label: string): void {
-    const metric = container.createDiv({ cls: "daily-hub-consistency-metric" });
-    metric.createEl("strong", { text: value });
-    metric.createEl("span", { text: label });
+    renderGoalConsistencyView(container, goals, this.plugin.data.goals);
   }
 
   private getLongTermAnalytics(todayKey: string): RangeAnalytics | undefined {
@@ -981,7 +801,8 @@ export class DailyHubView extends ItemView {
     const maximum = Math.max(...goals.map((goal) => goal.totalSeconds), 1);
     for (const goal of goals) {
       const item = breakdown.createDiv({ cls: "daily-hub-breakdown-item" });
-      item.style.setProperty("--dh-goal-color", getGoalColor(goal.goalId));
+      const configuredGoal = this.plugin.data.goals.find((candidate) => candidate.id === goal.goalId);
+      item.style.setProperty("--dh-goal-color", getGoalColor(goal.goalId, configuredGoal?.colorIndex));
       const heading = item.createDiv({ cls: "daily-hub-breakdown-heading" });
       heading.createEl("strong", { text: goal.goalName });
       heading.createEl("span", { text: formatDuration(goal.totalSeconds) });
@@ -1016,7 +837,7 @@ export class DailyHubView extends ItemView {
 
     if (!status.windowWatcherAvailable) {
       statusText.createEl("div", {
-        text: "⚠ Window watcher unavailable. Application, window-title, and URL rules require it.",
+        text: "⚠ Window watcher unavailable. Application and window-title rules cannot match.",
         cls: "daily-hub-warning"
       });
     }
@@ -1078,6 +899,7 @@ export class DailyHubView extends ItemView {
       : "Not started";
 
     const card = container.createDiv({ cls: `daily-hub-goal is-${state}` });
+    card.style.setProperty("--dh-goal-color", getGoalColor(goal.id, goal.colorIndex));
     const heading = card.createDiv({ cls: "daily-hub-goal-heading" });
     heading.createEl("h3", { text: goal.name });
     const badge = heading.createDiv({ cls: "daily-hub-goal-state" });
@@ -1092,7 +914,6 @@ export class DailyHubView extends ItemView {
     const content = card.createDiv({ cls: "daily-hub-goal-content" });
     let actualTime: HTMLElement | undefined;
     let compactTime: string | undefined;
-    let liveTime: string | undefined;
     let progressShell: HTMLElement | undefined;
 
     if (!progress.trackingStarted) {
@@ -1113,7 +934,6 @@ export class DailyHubView extends ItemView {
       const summary = content.createDiv({ cls: "daily-hub-goal-summary" });
       const minutes = Math.floor(progress.actualMinutes);
       compactTime = `${minutes} min`;
-      liveTime = formatLiveGoalDuration(progress.activeSeconds);
       actualTime = summary.createEl("strong", { text: compactTime, cls: "daily-hub-goal-actual" });
       summary.createEl("span", { text: `goal ${progress.targetMinutes} min`, cls: "daily-hub-muted" });
 
@@ -1175,6 +995,14 @@ export class DailyHubView extends ItemView {
       ).open();
     });
 
+    if (isToday(this.selectedDateKey)) {
+      const diagnostics = actions.createEl("button", {
+        text: "Why isn't this tracking?",
+        cls: "daily-hub-details-button daily-hub-diagnostics-button"
+      });
+      diagnostics.addEventListener("click", () => new TrackingDiagnosticsModal(this.plugin, goal).open());
+    }
+
     let pauseButton: HTMLButtonElement | undefined;
     let pauseIcon: HTMLElement | undefined;
     let pauseLabel: HTMLElement | undefined;
@@ -1205,7 +1033,6 @@ export class DailyHubView extends ItemView {
       status: runtimeStatus,
       actualTime,
       compactTime,
-      liveTime,
       liveEligible: selectedAvailable && progress.trackingStarted && progress.scheduled && !future,
       progressShell,
       pauseButton,
@@ -1239,14 +1066,14 @@ export class DailyHubView extends ItemView {
     const sequence = ++this.livePollSequence;
     const now = new Date();
     const maximumContextMs = this.plugin.data.goals.reduce(
-      (maximum, goal) => Math.max(maximum, goal.contextTimeoutMinutes * 60_000),
-      0
+      (maximum, goal) => Math.max(maximum, goal.contextTimeoutMinutes * 60_000), 0
     );
-    const lookbackMs = Math.max(LIVE_MIN_LOOKBACK_MS, maximumContextMs + BROWSER_CONTEXT_GRACE_MS);
-    const start = new Date(now.getTime() - lookbackMs);
+    const recentStart = new Date(now.getTime() - Math.max(
+      LIVE_MIN_LOOKBACK_MS, maximumContextMs + BROWSER_CONTEXT_GRACE_MS
+    ));
 
     try {
-      const snapshot = await this.plugin.getRecentActivitySnapshot(start, now);
+      const snapshot = await this.plugin.getRecentActivitySnapshot(recentStart, now);
       if (sequence !== this.livePollSequence || !isToday(this.selectedDateKey)) return;
       if (snapshot.status.kind !== "connected") {
         this.selectedActivityAvailable = false;
@@ -1254,19 +1081,25 @@ export class DailyHubView extends ItemView {
         this.stopLivePolling();
         return;
       }
-      const liveGoal = resolveTrackingAt(
+      const base = this.todayActivity ?? { windowEvents: [], browserEvents: [], afkEvents: [] };
+      const combined: DayActivity = {
+        windowEvents: [...base.windowEvents, ...snapshot.activity.windowEvents],
+        browserEvents: [...base.browserEvents, ...snapshot.activity.browserEvents],
+        afkEvents: [...base.afkEvents, ...snapshot.activity.afkEvents]
+      };
+      const live = resolveLiveTrackingState(
         this.plugin.data.goals,
-        snapshot.activity,
+        combined,
         now.getTime(),
-        start.getTime()
+        getLocalDateRange(now).start.getTime()
       );
-      this.updateGoalRuntimeStates(liveGoal?.id);
+      this.updateGoalRuntimeStates(live.goal?.id, live.currentSessionSeconds);
     } finally {
       this.livePollInFlight = false;
     }
   }
 
-  private updateGoalRuntimeStates(liveGoalId?: string): void {
+  private updateGoalRuntimeStates(liveGoalId?: string, currentSessionSeconds = 0): void {
     const currentDay = isToday(this.selectedDateKey);
     for (const [goalId, elements] of this.goalRuntimeElements) {
       const goal = this.plugin.data.goals.find((candidate) => candidate.id === goalId);
@@ -1284,7 +1117,7 @@ export class DailyHubView extends ItemView {
       elements.card.toggleClass("is-paused", runtime.paused);
       elements.card.toggleClass("is-live", runtime.live);
 
-      if (wasPaused !== runtime.paused || wasLive !== runtime.live) {
+      if (wasPaused !== runtime.paused || wasLive !== runtime.live || runtime.live) {
         elements.status.empty();
         if (runtime.paused) {
           elements.status.addClass("is-paused");
@@ -1296,17 +1129,17 @@ export class DailyHubView extends ItemView {
           elements.status.addClass("is-live");
           elements.status.removeClass("is-paused");
           elements.status.createSpan({ cls: "daily-hub-live-dot", attr: { "aria-hidden": "true" } });
-          elements.status.createSpan({ text: runtime.label });
+          elements.status.createSpan({
+            text: `${runtime.label} · ${formatCurrentSessionDuration(currentSessionSeconds)}`
+          });
         } else {
           elements.status.removeClass("is-live", "is-paused");
         }
       }
 
       elements.progressShell?.toggleClass("is-live", runtime.particlesActive);
-      if (elements.actualTime !== undefined
-        && elements.compactTime !== undefined
-        && elements.liveTime !== undefined) {
-        elements.actualTime.setText(runtime.live ? elements.liveTime : elements.compactTime);
+      if (elements.actualTime !== undefined && elements.compactTime !== undefined) {
+        elements.actualTime.setText(elements.compactTime);
       }
 
       if (elements.pauseButton !== undefined

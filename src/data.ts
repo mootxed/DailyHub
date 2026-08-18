@@ -7,6 +7,7 @@ import {
   type DailyGoal,
   type DailyHubData,
   type GoalDayOverride,
+  type GoalConfigRevision,
   type GoalRule,
   type GoalRuleRole,
   type GoalSchedule,
@@ -14,6 +15,7 @@ import {
   type MatchOperator,
   type RuleField
 } from "./models";
+import { configRevisionFromGoal, LEGACY_CONFIG_EFFECTIVE_FROM } from "./goal-config-history";
 import { getLocalDateRange } from "./date";
 import { isValidTrackingStartedAt } from "./goal-lifecycle";
 import { isValidTargetMinutes } from "./schedule";
@@ -116,6 +118,33 @@ function parseTrackingPauses(value: unknown): GoalTrackingPause[] {
   return normalized;
 }
 
+function parseConfigHistory(value: unknown): GoalConfigRevision[] {
+  if (!Array.isArray(value)) return [];
+  const revisions = value.flatMap((candidate): GoalConfigRevision[] => {
+    if (!isRecord(candidate)
+      || !isValidTrackingStartedAt(candidate.effectiveFrom)
+      || !isValidTargetMinutes(candidate.targetMinutes)
+      || !Array.isArray(candidate.rules)
+      || typeof candidate.contextTimeoutMinutes !== "number"
+      || !Number.isFinite(candidate.contextTimeoutMinutes)
+      || candidate.contextTimeoutMinutes <= 0) return [];
+    const rules = candidate.rules.flatMap((rule) => {
+      const parsed = parseRule(rule);
+      return parsed === undefined ? [] : [parsed];
+    });
+    if (!rules.some((rule) => rule.role === "primary")) return [];
+    return [{
+      effectiveFrom: new Date(Date.parse(candidate.effectiveFrom)).toISOString(),
+      targetMinutes: candidate.targetMinutes,
+      schedule: parseSchedule(candidate.schedule, candidate.targetMinutes),
+      rules,
+      contextTimeoutMinutes: candidate.contextTimeoutMinutes
+    }];
+  }).sort((left, right) => Date.parse(left.effectiveFrom) - Date.parse(right.effectiveFrom));
+  const deduped = new Map(revisions.map((revision) => [revision.effectiveFrom, revision]));
+  return [...deduped.values()];
+}
+
 function parseGoal(value: unknown): DailyGoal | undefined {
   if (!isRecord(value)
     || !nonEmptyString(value.id)
@@ -134,13 +163,19 @@ function parseGoal(value: unknown): DailyGoal | undefined {
   });
   if (!rules.some((rule) => rule.role === "primary")) return undefined;
 
-  return {
+  const goal: DailyGoal = {
     id: value.id,
     name: value.name,
     targetMinutes: value.targetMinutes,
     schedule: parseSchedule(value.schedule, value.targetMinutes),
     overrides: parseOverrides(value.overrides),
     trackingPauses: parseTrackingPauses(value.trackingPauses),
+    ...(typeof value.colorIndex === "number"
+      && Number.isInteger(value.colorIndex)
+      && value.colorIndex >= 0
+      && value.colorIndex < 8
+      ? { colorIndex: value.colorIndex }
+      : {}),
     ...(isValidTrackingStartedAt(value.trackingStartedAt)
       ? { trackingStartedAt: value.trackingStartedAt }
       : {}),
@@ -152,6 +187,11 @@ function parseGoal(value: unknown): DailyGoal | undefined {
       ? value.contextTimeoutMinutes
       : DEFAULT_CONTEXT_TIMEOUT_MINUTES
   };
+  const history = parseConfigHistory(value.configHistory);
+  goal.configHistory = history.length > 0
+    ? history
+    : [configRevisionFromGoal(goal, goal.trackingStartedAt ?? LEGACY_CONFIG_EFFECTIVE_FROM)];
+  return goal;
 }
 
 function parseGoals(value: unknown): DailyGoal[] {

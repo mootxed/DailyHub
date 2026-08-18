@@ -541,8 +541,9 @@
 }
 
 .daily-hub-progress-particle {
-  --dh-particle-x: 0px;
-  animation: daily-hub-particle-rise 1.25s ease-out infinite;
+  --dh-particle-x: -14px;
+  --dh-particle-y: 0px;
+  animation: daily-hub-particle-trail 760ms ease-out infinite;
   animation-play-state: paused;
   background: currentColor;
   border-radius: 50%;
@@ -559,17 +560,17 @@
   animation-play-state: running;
 }
 
-.daily-hub-progress-particle.is-1 { --dh-particle-x: -7px; animation-delay: -.1s; height: 2px; width: 2px; }
-.daily-hub-progress-particle.is-2 { --dh-particle-x: 5px; animation-delay: -.32s; }
-.daily-hub-progress-particle.is-3 { --dh-particle-x: -3px; animation-delay: -.54s; height: 4px; width: 4px; }
-.daily-hub-progress-particle.is-4 { --dh-particle-x: 8px; animation-delay: -.76s; height: 2px; width: 2px; }
-.daily-hub-progress-particle.is-5 { --dh-particle-x: -9px; animation-delay: -.98s; }
-.daily-hub-progress-particle.is-6 { --dh-particle-x: 2px; animation-delay: -1.2s; height: 2px; width: 2px; }
+.daily-hub-progress-particle.is-1 { --dh-particle-x: -14px; --dh-particle-y: -3px; animation-delay: -90ms; height: 2px; width: 2px; }
+.daily-hub-progress-particle.is-2 { --dh-particle-x: -20px; --dh-particle-y: 2px; animation-delay: -260ms; animation-duration: 940ms; width: 4px; }
+.daily-hub-progress-particle.is-3 { --dh-particle-x: -10px; --dh-particle-y: -6px; animation-delay: -430ms; animation-duration: 620ms; height: 2px; width: 3px; }
+.daily-hub-progress-particle.is-4 { --dh-particle-x: -24px; --dh-particle-y: 4px; animation-delay: -580ms; animation-duration: 1080ms; height: 2px; width: 4px; }
+.daily-hub-progress-particle.is-5 { --dh-particle-x: -17px; --dh-particle-y: 0px; animation-delay: -720ms; animation-duration: 830ms; width: 3px; }
+.daily-hub-progress-particle.is-6 { --dh-particle-x: -12px; --dh-particle-y: 5px; animation-delay: -850ms; animation-duration: 690ms; height: 2px; width: 3px; }
 
-@keyframes daily-hub-particle-rise {
-  0% { opacity: 0; transform: translate(0, 1px) scale(.75); }
+@keyframes daily-hub-particle-trail {
+  0% { opacity: 0; transform: translate(0, 0) scale(.75); }
   18% { opacity: .85; }
-  100% { opacity: 0; transform: translate(var(--dh-particle-x), -15px) scale(.25); }
+  100% { opacity: 0; transform: translate(var(--dh-particle-x), var(--dh-particle-y)) scale(.3); }
 }
 
 .daily-hub-progress::-webkit-progress-bar {
@@ -730,8 +731,12 @@
   gap: var(--size-4-4);
 }
 
+.daily-hub-goals.is-single-goal {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .daily-hub-goal {
-  --dh-goal-state: var(--dh-brand-bright);
+  --dh-goal-state: var(--dh-goal-color, var(--dh-brand-bright));
   background: var(--dh-surface);
   border: 1px solid var(--dh-border);
   border-radius: var(--dh-radius-md);
@@ -916,6 +921,7 @@
 
 /* Week and breakdown */
 .daily-hub-week {
+  container-type: inline-size;
   margin: 0;
   padding: var(--size-4-5);
 }
@@ -927,8 +933,8 @@
 .daily-hub-week-days {
   display: grid;
   gap: var(--size-4-2);
-  grid-template-columns: repeat(7, minmax(72px, 1fr));
-  overflow-x: auto;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  overflow-x: visible;
   padding: 2px 2px var(--size-4-2);
 }
 
@@ -938,8 +944,8 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  min-width: 72px;
-  padding: var(--size-4-2) 4px;
+  min-width: 0;
+  padding: 6px 2px;
   position: relative;
 }
 
@@ -1010,8 +1016,27 @@
   --dh-heatmap-cell-size: clamp(24px, 3cqi, 30px);
   display: grid;
   gap: 5px;
-  grid-template-columns: repeat(10, var(--dh-heatmap-cell-size));
+  grid-template-columns: auto repeat(var(--dh-heatmap-weeks), var(--dh-heatmap-cell-size));
+  grid-template-rows: 16px repeat(7, var(--dh-heatmap-cell-size));
   width: max-content;
+}
+
+.daily-hub-heatmap-weekday,
+.daily-hub-heatmap-month {
+  align-self: center;
+  color: var(--dh-text-muted);
+  font-size: 10px;
+  line-height: 1;
+}
+
+.daily-hub-heatmap-weekday {
+  padding-right: 3px;
+  text-align: right;
+}
+
+.daily-hub-heatmap-month {
+  font-weight: var(--font-semibold);
+  white-space: nowrap;
 }
 
 .daily-hub-heatmap-cell {
@@ -1055,10 +1080,24 @@
   color: var(--dh-text-muted);
 }
 
+.daily-hub-heatmap-cell.is-not-tracked {
+  background: transparent;
+  border-style: dotted;
+  color: var(--text-faint);
+}
+
 .daily-hub-consistency {
   display: grid;
   gap: var(--size-4-2);
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.daily-hub-bento-consistency,
+.daily-hub-bento-heatmap,
+.daily-hub-bento-goals,
+.daily-hub-bento-breakdown,
+.daily-hub-line-chart-card {
+  container-type: inline-size;
 }
 
 .daily-hub-consistency-card {
@@ -1099,6 +1138,70 @@
   color: var(--dh-text-muted);
   font-size: 10px;
   text-transform: uppercase;
+}
+
+.daily-hub-color-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.daily-hub-color-choice {
+  background: var(--dh-goal-color, var(--dh-surface-muted));
+  border: 2px solid transparent;
+  box-shadow: none;
+  height: 28px;
+  min-width: 28px;
+  padding: 0;
+  width: 28px;
+}
+
+.daily-hub-color-choice.is-auto {
+  background: var(--dh-surface-muted);
+  color: var(--dh-text-muted);
+  font-size: 9px;
+  width: 42px;
+}
+
+.daily-hub-color-choice.is-selected {
+  border-color: var(--dh-text);
+  box-shadow: 0 0 0 2px var(--dh-surface), 0 0 0 4px var(--dh-brand-bright);
+}
+
+.daily-hub-diagnostics {
+  display: grid;
+  gap: 6px;
+}
+
+.daily-hub-diagnostics h3 {
+  border-bottom: 1px solid var(--dh-border);
+  font-size: 14px;
+  margin: 14px 0 3px;
+  padding-bottom: 4px;
+}
+
+.daily-hub-diagnostics-row {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(105px, auto) minmax(0, 1fr);
+}
+
+.daily-hub-diagnostics-row > span { color: var(--dh-text-muted); }
+.daily-hub-diagnostics-row > strong { overflow-wrap: anywhere; }
+.daily-hub-diagnostics-row.is-goal { border-left: 4px solid var(--dh-goal-color); padding-left: 8px; }
+
+.daily-hub-diagnostics-result {
+  background: var(--dh-warning-soft);
+  border-radius: var(--dh-radius-sm);
+  color: var(--dh-warning);
+  display: grid;
+  gap: 2px;
+  padding: 10px;
+}
+
+.daily-hub-diagnostics-result.is-tracking {
+  background: var(--dh-success-soft);
+  color: var(--dh-success);
 }
 
 /* Shared modal system */
@@ -1339,6 +1442,21 @@
   grid-template-columns: minmax(0, 1fr);
 }
 
+.daily-hub-bento-analytics {
+  display: grid;
+  gap: 14px;
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.daily-hub-analytics-rail {
+  align-content: start;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
 .daily-hub-bento > *,
 .daily-hub-long-term > * {
   min-width: 0;
@@ -1403,10 +1521,20 @@
 
 .daily-hub-chart-legend-item {
   align-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  box-shadow: none;
+  color: var(--dh-text);
   display: inline-flex;
   font-size: var(--font-ui-small);
   gap: 6px;
+  height: auto;
+  padding: 3px 5px;
 }
+
+.daily-hub-chart-legend-item.is-hidden { color: var(--dh-text-muted); opacity: .65; }
+.daily-hub-chart-legend-item.is-hidden .daily-hub-chart-swatch { background: transparent; }
+.daily-hub-chart-empty-state { align-items: center; display: flex; gap: 10px; }
 
 .daily-hub-chart-swatch {
   background: var(--dh-goal-color);
@@ -1510,14 +1638,34 @@
   .daily-hub-bento-goals,
   .daily-hub-bento-chart,
   .daily-hub-bento-heatmap { grid-column: span 8; }
-  .daily-hub-bento-week,
-  .daily-hub-bento-breakdown,
   .daily-hub-bento-consistency { grid-column: span 4; }
   .daily-hub-bento-metric { grid-column: span 3; }
+}
 
-  .daily-hub-goals {
+@container (min-width: 760px) {
+  .daily-hub-bento-analytics {
+    grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
+  }
+}
+
+@container (min-width: 650px) {
+  .daily-hub-goals:not(.is-single-goal) {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+
+@container (max-width: 300px) {
+  .daily-hub-week-days {
+    grid-template-columns: repeat(7, minmax(42px, 1fr));
+    overflow-x: auto;
+  }
+
+  .daily-hub-week-day { min-width: 42px; }
+  .daily-hub-week-stat:last-child { display: none; }
+}
+
+@container (max-width: 420px) {
+  .daily-hub-consistency-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @container (max-width: 700px) {

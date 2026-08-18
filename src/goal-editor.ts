@@ -1,4 +1,5 @@
 import { Modal, Notice, Setting } from "obsidian";
+import { getGoalColor, GOAL_COLOR_COUNT } from "./activity-chart";
 import { GoalDeletionAction, isDeleteGoalAvailable } from "./goal-deletion";
 import type DailyHubPlugin from "./main";
 import {
@@ -27,6 +28,7 @@ function copyGoal(goal: DailyGoal): DailyGoal {
     schedule: Object.fromEntries(WEEKDAYS.map((weekday) => [weekday, { ...schedule[weekday] }])) as GoalSchedule,
     overrides: structuredClone(goal.overrides ?? {}),
     trackingPauses: structuredClone(goal.trackingPauses ?? []),
+    configHistory: structuredClone(goal.configHistory ?? []),
     rules: goal.rules.map((rule) => ({ ...rule }))
   };
 }
@@ -153,6 +155,36 @@ export class GoalEditorModal extends Modal {
       .addToggle((toggle) => toggle.setValue(this.draft.enabled).onChange((value) => {
         this.draft.enabled = value;
       }));
+
+    const colorSetting = new Setting(general)
+      .setName("Color")
+      .setDesc("Use a stable automatic color or choose an identity color.");
+    const colors = colorSetting.controlEl.createDiv({
+      cls: "daily-hub-color-picker",
+      attr: { role: "group", "aria-label": "Goal color" }
+    });
+    const choices: { label: string; value: number | undefined }[] = [
+      { label: "Automatic", value: undefined },
+      ...Array.from({ length: GOAL_COLOR_COUNT }, (_, index) => ({
+        label: `Color ${index + 1}`,
+        value: index
+      }))
+    ];
+    for (const choice of choices) {
+      const selected = this.draft.colorIndex === choice.value;
+      const button = colors.createEl("button", {
+        cls: `daily-hub-color-choice${choice.value === undefined ? " is-auto" : ""}${selected ? " is-selected" : ""}`,
+        text: choice.value === undefined ? "Auto" : "",
+        attr: { type: "button", "aria-label": choice.label, "aria-pressed": String(selected) }
+      });
+      if (choice.value !== undefined) {
+        button.style.setProperty("--dh-goal-color", getGoalColor(this.draft.id, choice.value));
+      }
+      button.addEventListener("click", () => {
+        this.draft.colorIndex = choice.value;
+        this.render();
+      });
+    }
 
     const tracking = this.contentEl.createDiv({ cls: "daily-hub-form-section daily-hub-tracking-section" });
     tracking.createEl("h3", { text: "Tracking rules" });

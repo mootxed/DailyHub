@@ -1,5 +1,6 @@
 import { getLocalDateRange } from "./date";
 import { hasGoalTrackingStartedByDate } from "./goal-lifecycle";
+import { getGoalAt } from "./goal-config-history";
 import {
   createDefaultSchedule,
   WEEKDAYS,
@@ -90,7 +91,9 @@ export function applyDefaultTargetToAllDays(goal: DailyGoal): DailyGoal {
 }
 
 export function getEffectiveGoalDay(goal: DailyGoal, dateKey: string): EffectiveGoalDay {
-  const scheduled = getGoalSchedule(goal)[getWeekday(dateKey)];
+  const dayRange = getLocalDateRange(dateKey);
+  const resolvedGoal = getGoalAt(goal, dayRange.end.getTime() - 1);
+  const scheduled = getGoalSchedule(resolvedGoal)[getWeekday(dateKey)];
   if (!hasGoalTrackingStartedByDate(goal, dateKey)) {
     return {
       goalId: goal.id,

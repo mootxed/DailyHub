@@ -5,6 +5,7 @@ import { normalizeData, requiresDataMigration } from "./data";
 import { toLocalDateKey } from "./date";
 import { GoalEditorModal } from "./goal-editor";
 import { pauseGoal, resumeGoal, startGoalTracking } from "./goal-lifecycle";
+import { withRecordedConfigRevision } from "./goal-config-history";
 import {
   DEFAULT_DATA,
   deleteGoalData,
@@ -65,7 +66,10 @@ export default class DailyHubPlugin extends Plugin {
   async upsertGoal(goal: DailyGoal): Promise<void> {
     const index = this.data.goals.findIndex((candidate) => candidate.id === goal.id);
     if (index === -1) this.data.goals.push(startGoalTracking(goal, new Date()));
-    else this.data.goals[index] = goal;
+    else {
+      const previous = this.data.goals[index];
+      if (previous !== undefined) this.data.goals[index] = withRecordedConfigRevision(previous, goal);
+    }
     await this.savePluginData();
     await this.refreshViews();
   }

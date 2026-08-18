@@ -1,7 +1,8 @@
 import { getLocalDateRange } from "./date";
 import { getTrackingStartMs, isGoalTrackingActiveAt } from "./goal-lifecycle";
+import { getConfigRevisionBoundaries, getGoalAt } from "./goal-config-history";
 import { goalMatches, pickMatchingPrimaryGoal } from "./matcher";
-import type { ActivityContext, ActivityEvent, DailyGoal, DayActivity, GoalProgress } from "./models";
+import type { ActivityContext, ActivityEvent, ActivityWatchStatus, DailyGoal, DayActivity, GoalProgress } from "./models";
 
 interface TimedEvent {
   event: ActivityEvent;
@@ -22,6 +23,30 @@ export interface TrackingSegment {
   goalId: string;
   startMs: number;
   endMs: number;
+}
+
+export interface LiveTrackingState {
+  goal: DailyGoal | undefined;
+  currentSessionStartMs: number | undefined;
+  currentSessionSeconds: number;
+}
+
+export type TrackingDiagnosticReason = "tracking-now" | "paused" | "not-tracking-yet"
+  | "afk-blocked" | "primary-mismatch" | "watcher-unavailable" | "overlap-lost"
+  | "no-current-activity";
+
+export interface GoalTrackingDiagnostic {
+  goalId: string;
+  primaryMatched: boolean;
+  reason: TrackingDiagnosticReason;
+}
+
+export interface TrackingDiagnostics {
+  winnerGoalId: string | undefined;
+  context: ActivityContext;
+  afk: boolean;
+  browserEvidenceAgeSeconds: number | undefined;
+  candidates: GoalTrackingDiagnostic[];
 }
 
 export const BROWSER_CONTEXT_GRACE_MS = 120_000;
@@ -194,6 +219,34 @@ function isAfk(event: TimedEvent | undefined): boolean {
   return stringData(event, "status")?.trim().toLocaleLowerCase() === "afk";
 }
 
+function extendFreshTail(events: ActivityEvent[], timestampMs: number): ActivityEvent[] {
+  let freshestIndex: number | undefined;
+  let freshestEnd = Number.NEGATIVE_INFINITY;
+  events.forEach((event, index) => {
+    const startMs = Date.parse(event.timestamp);
+    const duration = Number.isFinite(event.duration) ? Math.max(0, event.duration) : 0;
+    const endMs = startMs + duration * 1000;
+    if (duration > 0 && startMs <= timestampMs && endMs > freshestEnd) {
+      freshestIndex = index;
+      freshestEnd = endMs;
+    }
+  });
+  if (freshestIndex === undefined
+    || freshestEnd >= timestampMs
+    || timestampMs - freshestEnd > LIVE_EVENT_FRESHNESS_MS) return events;
+  return events.map((event, index) => index === freshestIndex
+    ? { ...event, duration: event.duration + (timestampMs - freshestEnd) / 1000 }
+    : event);
+}
+
+function liveActivityAt(activity: DayActivity, timestampMs: number): DayActivity {
+  return {
+    windowEvents: extendFreshTail(activity.windowEvents, timestampMs),
+    browserEvents: extendFreshTail(activity.browserEvents, timestampMs),
+    afkEvents: extendFreshTail(activity.afkEvents, timestampMs)
+  };
+}
+
 export function calculateDailyProgress(
   goals: DailyGoal[],
   activity: DayActivity,
@@ -264,6 +317,9 @@ export function resolveTrackingTimeline(
         boundaries.add(pauseEndMs);
       }
     }
+    for (const boundary of getConfigRevisionBoundaries(goal, rangeStart, rangeEnd)) {
+      boundaries.add(boundary);
+    }
   }
 
   const goalsById = new Map(goals.map((goal) => [goal.id, goal]));
@@ -289,7 +345,9 @@ export function resolveTrackingTimeline(
 
     const activityContext = contextAt(windowEvent, browserEvent);
     const duringAfk = isAfk(eventAt(afkEvents, start));
-    const eligibleGoals = goals.filter((goal) => isGoalTrackingActiveAt(goal, start));
+    const eligibleGoals = goals
+      .filter((goal) => isGoalTrackingActiveAt(goal, start))
+      .map((goal) => getGoalAt(goal, start));
     const primaryGoal = pickMatchingPrimaryGoal(eligibleGoals, activityContext, duringAfk);
     if (primaryGoal !== undefined) {
       segments.push({ goalId: primaryGoal.id, startMs: start, endMs: end });
@@ -300,7 +358,8 @@ export function resolveTrackingTimeline(
     if (duringAfk) continue;
 
     if (currentContext !== undefined) {
-      const contextGoal = goalsById.get(currentContext.goalId);
+      const storedContextGoal = goalsById.get(currentContext.goalId);
+      const contextGoal = storedContextGoal === undefined ? undefined : getGoalAt(storedContextGoal, start);
       const timeoutMs = (contextGoal?.contextTimeoutMinutes ?? 0) * 60_000;
       const leaseEnd = currentContext.lastPrimaryTimestamp + timeoutMs;
       if (contextGoal === undefined || start >= leaseEnd) {
@@ -321,35 +380,85 @@ export function resolveTrackingAt(
   timestampMs: number,
   lookbackStartMs: number
 ): DailyGoal | undefined {
-  const extendFreshTail = (events: ActivityEvent[]): ActivityEvent[] => {
-    let freshestIndex: number | undefined;
-    let freshestEnd = Number.NEGATIVE_INFINITY;
-    events.forEach((event, index) => {
-      const startMs = Date.parse(event.timestamp);
-      const duration = Number.isFinite(event.duration) ? Math.max(0, event.duration) : 0;
-      const endMs = startMs + duration * 1000;
-      if (duration > 0 && startMs <= timestampMs && endMs > freshestEnd) {
-        freshestIndex = index;
-        freshestEnd = endMs;
-      }
-    });
-    if (freshestIndex === undefined
-      || freshestEnd >= timestampMs
-      || timestampMs - freshestEnd > LIVE_EVENT_FRESHNESS_MS) {
-      return events;
-    }
-    return events.map((event, index) => index === freshestIndex
-      ? { ...event, duration: event.duration + (timestampMs - freshestEnd) / 1000 }
-      : event);
+  return resolveLiveTrackingState(goals, activity, timestampMs, lookbackStartMs).goal;
+}
+
+export function resolveLiveTrackingState(
+  goals: DailyGoal[],
+  activity: DayActivity,
+  timestampMs: number,
+  lookbackStartMs: number
+): LiveTrackingState {
+  const liveActivity = liveActivityAt(activity, timestampMs);
+  const segments = resolveTrackingTimeline(goals, liveActivity, lookbackStartMs, timestampMs);
+  const segment = segments.at(-1);
+  if (segment?.endMs !== timestampMs) {
+    return { goal: undefined, currentSessionStartMs: undefined, currentSessionSeconds: 0 };
+  }
+  let sessionStart = segment.startMs;
+  for (let index = segments.length - 2; index >= 0; index -= 1) {
+    const previous = segments[index];
+    if (previous?.goalId !== segment.goalId || previous.endMs !== sessionStart) break;
+    sessionStart = previous.startMs;
+  }
+  return {
+    goal: goals.find((goal) => goal.id === segment.goalId),
+    currentSessionStartMs: sessionStart,
+    currentSessionSeconds: Math.max(0, (timestampMs - sessionStart) / 1000)
   };
-  const liveActivity: DayActivity = {
-    windowEvents: extendFreshTail(activity.windowEvents),
-    browserEvents: extendFreshTail(activity.browserEvents),
-    afkEvents: extendFreshTail(activity.afkEvents)
+}
+
+export function resolveTrackingAtDetailed(
+  goals: DailyGoal[],
+  activity: DayActivity,
+  timestampMs: number,
+  lookbackStartMs: number,
+  status?: ActivityWatchStatus
+): TrackingDiagnostics {
+  const liveActivity = liveActivityAt(activity, timestampMs);
+  const live = resolveLiveTrackingState(goals, activity, timestampMs, lookbackStartMs);
+  const sample = Math.max(lookbackStartMs, timestampMs - 1);
+  const windowEvents = parseEvents(liveActivity.windowEvents, lookbackStartMs, timestampMs + 1);
+  const browserEvents = parseEvents(liveActivity.browserEvents, lookbackStartMs, timestampMs + 1, true);
+  const afkEvents = parseEvents(liveActivity.afkEvents, lookbackStartMs, timestampMs + 1);
+  const windowEvent = eventAt(windowEvents, sample);
+  const browserEvidence = findBrowserContextAt(indexBrowserEvents(browserEvents), windowEvent, sample);
+  const context = contextAt(windowEvent, browserEvidence);
+  const afk = isAfk(eventAt(afkEvents, sample));
+  const resolvedGoals = goals.map((goal) => getGoalAt(goal, sample));
+  const primaryWinner = pickMatchingPrimaryGoal(
+    resolvedGoals.filter((goal) => isGoalTrackingActiveAt(goal, sample)), context, afk
+  );
+  const noActivity = windowEvent === undefined && browserEvidence === undefined;
+  const candidates = goals.map((storedGoal): GoalTrackingDiagnostic => {
+    const goal = getGoalAt(storedGoal, sample);
+    const primaryMatched = goalMatches(goal, context, "primary");
+    const watcherUnavailable = status !== undefined && goal.rules.some((rule) => (
+      rule.field === "url" ? !status.browserWatcherAvailable
+        : !status.windowWatcherAvailable
+    ));
+    let reason: TrackingDiagnosticReason;
+    if (live.goal?.id === goal.id) reason = "tracking-now";
+    else if (!isGoalTrackingActiveAt(storedGoal, sample)) {
+      reason = getTrackingStartMs(storedGoal) !== undefined && sample < (getTrackingStartMs(storedGoal) ?? 0)
+        ? "not-tracking-yet" : "paused";
+    } else if (watcherUnavailable) reason = "watcher-unavailable";
+    else if (noActivity) reason = "no-current-activity";
+    else if (afk && primaryMatched) reason = "afk-blocked";
+    else if (primaryMatched && primaryWinner?.id !== goal.id) reason = "overlap-lost";
+    else reason = "primary-mismatch";
+    return { goalId: goal.id, primaryMatched, reason };
+  });
+  const latestBrowser = latestEventAtOrBefore(browserEvents, timestampMs);
+  return {
+    winnerGoalId: live.goal?.id,
+    context,
+    afk,
+    browserEvidenceAgeSeconds: latestBrowser === undefined
+      ? undefined
+      : Math.max(0, (timestampMs - latestBrowser.startMs) / 1000),
+    candidates
   };
-  const segment = resolveTrackingTimeline(goals, liveActivity, lookbackStartMs, timestampMs).at(-1);
-  if (segment?.endMs !== timestampMs) return undefined;
-  return goals.find((goal) => goal.id === segment.goalId);
 }
 
 export function getGoalProgress(

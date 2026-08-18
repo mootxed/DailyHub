@@ -48,17 +48,29 @@ export interface GoalTrackingPause {
   endedAt?: string;
 }
 
+export interface GoalConfigRevision {
+  effectiveFrom: string;
+  targetMinutes: number;
+  schedule: GoalSchedule;
+  rules: GoalRule[];
+  contextTimeoutMinutes: number;
+}
+
 export interface DailyGoal {
   id: string;
   name: string;
   targetMinutes: number;
-  /** Present on normalized schema-v6 data; optional here so legacy in-memory goals remain adaptable. */
+  /** Present on normalized data; optional here so legacy in-memory goals remain adaptable. */
   schedule?: GoalSchedule;
   overrides?: Record<string, GoalDayOverride>;
   /** Missing on legacy goals whose original tracking start is unknown. */
   trackingStartedAt?: string;
   /** Persisted intervals during which matching activity must not be counted. */
   trackingPauses?: GoalTrackingPause[];
+  /** Curated identity color. Undefined keeps the stable id-derived fallback. */
+  colorIndex?: number;
+  /** Tracking-sensitive configuration ordered by effectiveFrom. */
+  configHistory?: GoalConfigRevision[];
   rules: GoalRule[];
   contextTimeoutMinutes: number;
   enabled: boolean;
@@ -120,7 +132,7 @@ export interface ActivityWatchSnapshot {
   activity: DayActivity;
 }
 
-export const DATA_SCHEMA_VERSION = 7;
+export const DATA_SCHEMA_VERSION = 8;
 export const DEFAULT_CONTEXT_TIMEOUT_MINUTES = 10;
 
 export const DEFAULT_SETTINGS: DailyHubSettings = {

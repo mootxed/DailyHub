@@ -58,3 +58,9 @@ export function formatLiveGoalDuration(totalSeconds: number): string {
   const seconds = Math.max(0, Math.floor(totalSeconds));
   return `${Math.floor(seconds / 60)} min ${seconds % 60} sec`;
 }
+
+export function formatCurrentSessionDuration(totalSeconds: number): string {
+  const seconds = Math.max(0, Math.floor(totalSeconds));
+  const minutes = Math.floor(seconds / 60);
+  return minutes > 0 ? `${minutes}m ${seconds % 60}s` : `${seconds}s`;
+}

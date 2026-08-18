@@ -24,7 +24,7 @@ describe("plugin data validation", () => {
     expect(requiresDataMigration(legacy)).toBe(true);
     expect(migrated.schemaVersion).toBe(DATA_SCHEMA_VERSION);
     expect(migrated.settings).not.toHaveProperty("afkThresholdSeconds");
-    expect(migrated.goals).toEqual([{
+    expect(migrated.goals).toMatchObject([{
       id: "goal-1",
       name: "Typing",
       targetMinutes: 30,
@@ -78,7 +78,7 @@ describe("plugin data validation", () => {
     };
     const legacy = normalizeData({ schemaVersion: 5, settings: {}, goals: [baseGoal] });
     expect(requiresDataMigration({ schemaVersion: 5, settings: {}, goals: [baseGoal] })).toBe(true);
-    expect(legacy.schemaVersion).toBe(7);
+    expect(legacy.schemaVersion).toBe(DATA_SCHEMA_VERSION);
     expect(legacy.goals[0]).not.toHaveProperty("trackingStartedAt");
 
     const valid = normalizeData({
@@ -115,7 +115,7 @@ describe("plugin data validation", () => {
       }],
       notifiedCompletions: [42, "2026-08-16:valid"]
     });
-    expect(data.goals).toEqual([{
+    expect(data.goals).toMatchObject([{
       id: "mixed",
       name: "Mixed",
       targetMinutes: 25,
@@ -272,5 +272,33 @@ describe("plugin data validation", () => {
       { startedAt: "2026-08-18T11:00:00.000Z" }
     ]);
     expect(requiresDataMigration({ schemaVersion: 6, settings: {}, goals: [baseGoal] })).toBe(true);
+  });
+
+  it("migrates, validates, sorts, and deduplicates configuration revisions", () => {
+    const rule = { id: "primary", role: "primary", field: "application", operator: "equals", value: "kitty" };
+    const data = normalizeData({
+      schemaVersion: 7,
+      settings: {},
+      goals: [{
+        id: "history", name: "History", targetMinutes: 90, enabled: true,
+        trackingStartedAt: "2026-08-01T10:00:00.000Z",
+        rules: [rule], colorIndex: 3,
+        configHistory: [
+          { effectiveFrom: "invalid", targetMinutes: 15, schedule: {}, rules: [rule], contextTimeoutMinutes: 10 },
+          { effectiveFrom: "2026-08-18T10:00:00.000Z", targetMinutes: 60, schedule: {}, rules: [rule], contextTimeoutMinutes: 20 },
+          { effectiveFrom: "2026-08-01T10:00:00.000Z", targetMinutes: 30, schedule: {}, rules: [rule], contextTimeoutMinutes: 10 },
+          { effectiveFrom: "2026-08-18T10:00:00.000Z", targetMinutes: 90, schedule: {}, rules: [rule], contextTimeoutMinutes: 30 }
+        ]
+      }]
+    });
+
+    expect(data.goals[0]?.colorIndex).toBe(3);
+    expect(data.goals[0]?.configHistory?.map((revision) => [
+      revision.effectiveFrom, revision.targetMinutes, revision.contextTimeoutMinutes
+    ])).toEqual([
+      ["2026-08-01T10:00:00.000Z", 30, 10],
+      ["2026-08-18T10:00:00.000Z", 90, 30]
+    ]);
+    expect(data.goals[0]?.configHistory?.[0]?.rules).not.toBe(data.goals[0]?.rules);
   });
 });

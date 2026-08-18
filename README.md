@@ -6,15 +6,20 @@ Daily Hub is a desktop [Obsidian](https://obsidian.md/) community plugin that tr
 
 ## Dashboard
 
-- A dedicated **Daily Hub** view with live progress bars, remaining time, and above-target totals.
+- A dense, responsive Habitica-inspired Bento dashboard with live progress bars, remaining time, and above-target totals.
 - A schedule-aware **Today Plan** with every planned goal, completed states, total remaining time, and a stable next-goal suggestion.
 - A seven-day navigator with a persistent Today shortcut when another date is selected.
 - A daily summary with total studied time and scheduled-goal completion count.
 - A clickable Monday–Sunday overview with weekly total, elapsed-day average, completion count, and per-goal breakdown.
 - A non-blocking **Last 30 days** section ending Today, with total study time, available-day average, active days, and goal completion rate.
-- An accessible 30-day completion heatmap; select any available cell to open that day and its week without moving the analytics window away from Today.
+- An accessible calendar-style 30-day completion heatmap with weekday/month labels and date tooltips.
+- An interactive **Activity over time** line chart with goal-color filtering and keyboard-accessible date navigation.
 - Per-goal 30-day consistency, completed-day counts, current and best streaks.
 - Goal details for the selected week plus a compact 30-day total, completion, and streak summary.
+- Live **Tracking now** badges with the current continuous session duration, Pause/Resume, persisted pause intervals, and reduced-motion-safe progress particles.
+- On-demand **Why isn't this tracking?** diagnostics that explain matching context, watcher availability, AFK, overlap, and lifecycle decisions without storing snapshots.
+- Curated per-goal identity colors reused across charts and analytics, with stable automatic colors as the default.
+- Versioned target, recurring schedule, tracking-rule, and context-timeout history so later edits do not rewrite earlier results.
 - Unlimited daily goals with a minimum number of minutes.
 - Per-goal Monday–Sunday schedules, rest days, and different weekday targets.
 - Per-date target overrides and skip overrides for today, historical dates, or future plans, with one-click reset to the recurring schedule.
@@ -58,7 +63,7 @@ _Screenshot coming after the first packaged release._
 
 Daily Hub is marked desktop-only because it depends on a local ActivityWatch server and desktop watcher data.
 
-Watcher dependencies are intentionally strict: application and window-title rules require `aw-watcher-window`; URL rules require both `aw-watcher-web` and `aw-watcher-window`, because the active window verifies that the URL belongs to the foreground browser; AFK exclusion requires `aw-watcher-afk`.
+Application and window-title rules require `aw-watcher-window`; URL rules use `aw-watcher-web` as an independent source of current-tab activity and do not require that browser to be the foreground application. AFK exclusion requires `aw-watcher-afk`.
 
 ## Install
 
@@ -119,7 +124,7 @@ If Daily Hub cannot locate the file, follow the [official ActivityWatch configur
 
 URL matching requires an ActivityWatch browser extension. Install the watcher for your browser by following the [official browser watcher instructions](https://docs.activitywatch.net/en/latest/watchers.html#web-browser). Daily Hub does not attempt to install browser extensions automatically. Without it, application and window-title rules continue to work and the dashboard explains that URL data is unavailable.
 
-Short gaps in browser events may be bridged for up to two minutes when the foreground application is still the same browser and its non-empty window title contains the last reported page title. A browser or title change, newer evidence from that browser, or the grace-period limit ends the inferred context immediately. Daily Hub never infers a URL without recent real browser data.
+While a browser event is active, its `web.tab.current` URL is authoritative even when another application is in the foreground. Short heartbeat gaps may be bridged for up to two minutes when later browser evidence confirms the gap; a matching foreground browser/title can also corroborate the live tail. Daily Hub never invents a URL without recent real browser data.
 
 ## Example: keybr.com
 
@@ -133,7 +138,7 @@ Match: contains
 Value: keybr.com
 ```
 
-When the browser watcher reports a URL containing `keybr.com`, the corresponding browser is the active X11 window, and the AFK watcher does not report `afk`, that time is attributed automatically. A stale browser event is ignored after you switch to Terminal or another application.
+When the browser watcher reports its current tab with a URL containing `keybr.com`, and the AFK watcher does not report `afk`, that time is attributed automatically. The URL source remains valid when another application is foreground; stale browser evidence is ignored once the bounded freshness/grace rules expire.
 
 ## Context-aware goals
 
@@ -152,11 +157,11 @@ Context timeout: 10 min
 
 After an active Stepik page identifies DevOps, work in Terminal or VS Code can continue to count for 10 minutes after the most recent matching Primary activity. Primary activity establishes and refreshes this context lease. Continuation activity can use the lease but does **not** refresh it, so closing Stepik cannot make Terminal count indefinitely. Opening those applications without the earlier Stepik activity does not start DevOps. Unrelated activity itself is never counted.
 
-For passive activities such as video lessons, a specific Primary rule can enable **Count while AFK**. That rule must still match the current foreground activity, so a background Stepik tab is not counted. A matching passive Primary continues to refresh the context lease while it remains in the foreground. Continuation rules never count while AFK and never extend the lease.
+For passive activities such as video lessons, a specific Primary rule can enable **Count while AFK**. The rule must still match its own ActivityWatch source; a URL primary can therefore match `web.tab.current` without foreground-window coupling. A matching passive Primary refreshes the context lease. Continuation rules never count while AFK and never extend the lease.
 
 ## How counting works
 
-ActivityWatch remains the source of truth. Daily Hub requests the selected local-day range, clips and sorts events, combines a browser URL only with its corresponding active browser window (including the bounded gap handling described above), applies rule-aware AFK exclusion, matches timeline segments to enabled goals, and computes progress on demand. Context is reconstructed from that timeline for every calculation and is not stored in plugin data. It prefers the current ActivityWatch hostname and the newest duplicate bucket for each source. It does not duplicate raw ActivityWatch history into the vault.
+ActivityWatch remains the source of truth. Daily Hub requests the selected local-day range, clips and sorts events, resolves independent browser and window context (including bounded browser-gap handling), applies rule-aware AFK exclusion, matches timeline segments to enabled goals, and computes progress on demand. Context is reconstructed from that timeline for every calculation and is not stored in plugin data. It prefers the current ActivityWatch hostname and the newest duplicate bucket for each source. It does not duplicate raw ActivityWatch history into the vault.
 
 New goals only track ActivityWatch activity from the moment they are created. Existing legacy goals from earlier plugin versions retain their historical behavior because their original creation timestamps are unknown.
 
@@ -166,7 +171,7 @@ Heatmap intensity is the average capped completion ratio of the goals scheduled 
 
 For each goal, a completed scheduled day means that its globally attributed time met the effective target. Rest days and skip overrides are ignored when counting streaks, so `✓ · Rest · Rest · ✓` is a two-opportunity streak. If Today is scheduled and complete, the current streak starts at Today; if Today is still incomplete, the streak starts at the previous scheduled day so an unfinished day does not reset it in the morning. If Today is a rest day, the streak continues from the last scheduled day. A past incomplete scheduled day breaks a streak. An unavailable scheduled day breaks streak certainty, while unavailable data on a rest day does not. Best streak is the longest continuous run of completed opportunities within the 30-day window.
 
-Historical totals, completion, and streaks always use the current goal configuration. Date-specific overrides are persisted and continue to apply to their dates, but changing a recurring weekly schedule recalculates historical weekdays unless a date has an explicit override. Changing rules or the default target can also change historical results. Daily Hub does not keep versioned schedule or goal history yet.
+Tracking-sensitive goal configuration is versioned. Each goal receives an initial revision when tracking starts; edits to its target, recurring schedule, rules, or context timeout add a timestamped revision only when those fields actually change. Timeline attribution splits at revision timestamps, while date analytics use the revision effective for that local day. Date-specific overrides remain the most specific layer and do not create revisions. Rename, color, Pause/Resume, enabled state, and view-only changes also do not create revisions. Legacy goals with unknown creation times receive a compatibility revision that preserves their prior all-history behavior.
 
 If two goals' primary rules accidentally match one segment, only the goal with the lexicographically smallest stable goal ID receives the time. This deterministic fallback prevents double-counting; rules are easiest to understand when they do not overlap.
 
@@ -174,8 +179,7 @@ If two goals' primary rules accidentally match one segment, only the goal with t
 
 - Context starts empty at midnight for each calculated local day; it is not carried across day boundaries.
 - No automatic ActivityWatch binary or browser-extension installation.
-- No schedule version history, weekly/monthly aggregate goals, manual timers, calendar integrations, or cloud sync.
-- Changes to rules or targets recalculate the entire selected day from current ActivityWatch history and configuration.
+- No revision-history editor, weekly/monthly aggregate goals, manual timers, calendar integrations, or cloud sync.
 
 ## Manual smoke test
 
@@ -185,15 +189,17 @@ If two goals' primary rules accidentally match one segment, only the goal with t
 4. Open Obsidian and enable Daily Hub.
 5. Create `Typing Practice`, target `30 min`, with `URL contains keybr.com`.
 6. Open Keybr and confirm that the time increases after a refresh.
-7. Switch to Terminal and confirm that Keybr time stops increasing.
-8. Return to Keybr, then provide no keyboard or mouse input for more than 60 seconds; confirm that the AFK interval is not counted.
-9. Resume activity in Keybr and confirm that counting continues.
-10. In **Last 30 days**, select Yesterday and confirm that the daily and weekly sections navigate while the range still ends Today.
-11. Resize the Daily Hub pane narrowly and confirm that the heatmap remains usable with horizontal scrolling.
-12. Stop ActivityWatch for a refresh and confirm that missing activity is shown as unavailable, not as a failed zero-progress day.
-13. Set a goal to `Mon–Fri 60 min`, `Sat 30 min`, and `Sun Rest`; select Sunday and confirm that it is neutral rather than incomplete.
-14. Override Today to `90 min`, then skip and reset it; confirm that the card, Today Plan, completion denominator, and remaining total update each time.
-15. Select a future rest day and a future scheduled day; confirm that Daily Hub shows the schedule without fake activity.
+7. Keep Keybr as the browser watcher's current tab, switch Obsidian or Terminal to the foreground, and confirm the URL goal keeps counting until browser evidence becomes stale.
+8. Confirm the goal shows **Tracking now · _session duration_**, the progress-front particles trail left, and Pause stops both the badge and session; Resume starts a new session.
+9. Return to Keybr, then provide no keyboard or mouse input for more than 60 seconds; confirm that the AFK interval is not counted and breaks the current session.
+10. Open **Why isn't this tracking?** and verify its context, rules, watcher checks, resolved goal, and explanation match the live state.
+11. Toggle chart legend entries, activate a chart point with click and keyboard, and confirm it opens that date without reloading ActivityWatch data for filtering.
+12. In **Last 30 days**, select a calendar heatmap cell and confirm that the daily and weekly sections navigate while the range still ends Today.
+13. Resize the Daily Hub pane narrowly and confirm the week, chart, heatmap, and consistency cards respond locally without whole-page horizontal scrolling.
+14. Stop ActivityWatch for a refresh and confirm missing activity is unavailable/null—not a zero point—and that chart lines break across the missing day.
+15. Set a goal to `Mon–Fri 60 min`, `Sat 30 min`, and `Sun Rest`; select Sunday and confirm that it is neutral rather than incomplete.
+16. Override Today to `90 min`, then skip and reset it; confirm the card, Today Plan, completion denominator, and remaining total update without creating config revisions.
+17. Change a goal target, schedule, or rule, then revisit a date before the edit and confirm it still uses the earlier configuration while later activity uses the new revision.
 
 ## License
 

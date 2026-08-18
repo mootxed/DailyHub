@@ -1,5 +1,6 @@
 import { getLocalDateRange } from "./date";
 import type { DailyGoal, GoalTrackingPause } from "./models";
+import { configRevisionFromGoal } from "./goal-config-history";
 
 export function isValidTrackingStartedAt(value: unknown): value is string {
   return typeof value === "string" && value.length > 0 && Number.isFinite(Date.parse(value));
@@ -91,7 +92,11 @@ export function hasGoalTrackingStartedByDate(
 }
 
 export function startGoalTracking(goal: DailyGoal, startedAt: Date): DailyGoal {
-  return isValidTrackingStartedAt(goal.trackingStartedAt)
-    ? goal
-    : { ...goal, trackingStartedAt: startedAt.toISOString() };
+  if (isValidTrackingStartedAt(goal.trackingStartedAt)) return goal;
+  const trackingStartedAt = startedAt.toISOString();
+  const started = { ...goal, trackingStartedAt };
+  return {
+    ...started,
+    configHistory: [configRevisionFromGoal(started, trackingStartedAt)]
+  };
 }

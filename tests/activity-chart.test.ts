@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   buildActivityChartSeries,
+  filterActivityChartSeries,
+  getActivityChartSegments,
   getGoalColor,
   getGoalColorIndex,
   getNiceTimeScale,
@@ -62,6 +64,42 @@ describe("activity line chart", () => {
     ]);
 
     expect(series[0]?.points.map((point) => point.seconds)).toEqual([null, null]);
+    expect(series[0]?.points.map((point) => point.missingReason)).toEqual(["unavailable", "future"]);
+  });
+
+  it("uses a missing point before tracking starts but preserves tracked zero", () => {
+    const tracked = goal("devops");
+    tracked.trackingStartedAt = new Date(2026, 7, 18, 12).toISOString();
+    const series = buildActivityChartSeries([tracked], [
+      { dateKey: "2026-08-17", future: false, progress: [progress("devops", 0)] },
+      { dateKey: "2026-08-18", future: false, progress: [progress("devops", 0)] }
+    ]);
+
+    expect(series[0]?.points).toEqual([
+      { dateKey: "2026-08-17", seconds: null, missingReason: "not-tracked" },
+      { dateKey: "2026-08-18", seconds: 0 }
+    ]);
+  });
+
+  it("splits line segments at every missing point", () => {
+    const points = [
+      { dateKey: "mon", seconds: 1_800 },
+      { dateKey: "tue", seconds: null, missingReason: "unavailable" as const },
+      { dateKey: "wed", seconds: 3_000 }
+    ];
+    expect(getActivityChartSegments(points)).toEqual([[points[0]], [points[2]]]);
+  });
+
+  it("filters without mutating source series", () => {
+    const source = buildActivityChartSeries([goal("devops"), goal("typing")], [{
+      dateKey: DATE,
+      future: false,
+      progress: [progress("devops", 10), progress("typing", 20)]
+    }]);
+    const snapshot = structuredClone(source);
+    expect(filterActivityChartSeries(source, new Set(["typing"])).map((item) => item.goalId))
+      .toEqual(["devops"]);
+    expect(source).toEqual(snapshot);
   });
 
   it("uses pause-aware progress totals instead of raw event duration", () => {
@@ -105,6 +143,7 @@ describe("activity line chart", () => {
     expect(new Set(["devops", "wiki", "typing"].map(getGoalColor)).size).toBe(3);
     expect(getGoalColorIndex("devops")).toBeGreaterThanOrEqual(0);
     expect(getGoalColorIndex("devops")).toBeLessThan(GOAL_COLOR_COUNT);
+    expect(getGoalColor("devops", 4)).toBe("var(--dh-goal-color-5)");
   });
 
   it.each([

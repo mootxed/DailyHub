@@ -1,4 +1,5 @@
 import type { DailyGoal, GoalProgress } from "./models";
+import { hasGoalTrackingStartedByDate } from "./goal-lifecycle";
 
 export const GOAL_COLOR_COUNT = 8;
 
@@ -11,6 +12,7 @@ export interface ActivityChartDayInput {
 export interface ActivityChartPoint {
   dateKey: string;
   seconds: number | null;
+  missingReason?: "not-tracked" | "unavailable" | "future";
 }
 
 export interface ActivityChartSeries {
@@ -44,13 +46,20 @@ export function buildActivityChartSeries(
   return goals.filter((goal) => goal.enabled).map((goal) => ({
     goalId: goal.id,
     goalName: goal.name,
-    color: getGoalColor(goal.id),
-    points: days.map((day) => ({
-      dateKey: day.dateKey,
-      seconds: day.future || day.progress === undefined
-        ? null
-        : day.progress.find((item) => item.goalId === goal.id)?.activeSeconds ?? 0
-    }))
+    color: getGoalColor(goal.id, goal.colorIndex),
+    points: days.map((day) => {
+      if (!hasGoalTrackingStartedByDate(goal, day.dateKey)) {
+        return { dateKey: day.dateKey, seconds: null, missingReason: "not-tracked" };
+      }
+      if (day.future) return { dateKey: day.dateKey, seconds: null, missingReason: "future" };
+      if (day.progress === undefined) {
+        return { dateKey: day.dateKey, seconds: null, missingReason: "unavailable" };
+      }
+      return {
+        dateKey: day.dateKey,
+        seconds: day.progress.find((item) => item.goalId === goal.id)?.activeSeconds ?? 0
+      };
+    })
   }));
 }
 
@@ -63,8 +72,32 @@ export function getGoalColorIndex(goalId: string): number {
   return (hash >>> 0) % GOAL_COLOR_COUNT;
 }
 
-export function getGoalColor(goalId: string): string {
-  return `var(--dh-goal-color-${getGoalColorIndex(goalId) + 1})`;
+export function getGoalColor(goalId: string, colorIndex?: number): string {
+  const resolved = colorIndex !== undefined && Number.isInteger(colorIndex)
+    && colorIndex >= 0 && colorIndex < GOAL_COLOR_COUNT
+    ? colorIndex
+    : getGoalColorIndex(goalId);
+  return `var(--dh-goal-color-${resolved + 1})`;
+}
+
+export function filterActivityChartSeries(
+  series: ActivityChartSeries[],
+  hiddenGoalIds: ReadonlySet<string>
+): ActivityChartSeries[] {
+  return series.filter((item) => !hiddenGoalIds.has(item.goalId));
+}
+
+export function getActivityChartSegments(points: ActivityChartPoint[]): ActivityChartPoint[][] {
+  const segments: ActivityChartPoint[][] = [];
+  let current: ActivityChartPoint[] = [];
+  for (const point of points) {
+    if (point.seconds === null) {
+      if (current.length > 0) segments.push(current);
+      current = [];
+    } else current.push(point);
+  }
+  if (current.length > 0) segments.push(current);
+  return segments;
 }
 
 export function getMaximumChartSeconds(series: ActivityChartSeries[]): number {

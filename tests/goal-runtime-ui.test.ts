@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  formatCurrentSessionDuration,
   formatLiveGoalDuration,
   getGoalCardClassNames,
   getGoalRuntimeUiState,
@@ -75,5 +76,7 @@ describe("goal runtime UI", () => {
   it("uses second precision only for the live display value", () => {
     expect(formatLiveGoalDuration(10_104.9)).toBe("168 min 24 sec");
     expect(formatLiveGoalDuration(-20)).toBe("0 min 0 sec");
+    expect(formatCurrentSessionDuration(454.9)).toBe("7m 34s");
+    expect(formatCurrentSessionDuration(34.9)).toBe("34s");
   });
 });
