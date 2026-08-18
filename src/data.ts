@@ -22,6 +22,7 @@ import { configRevisionFromGoal, LEGACY_CONFIG_EFFECTIVE_FROM } from "./goal-con
 import { getLocalDateRange } from "./date";
 import { isValidTrackingStartedAt } from "./goal-lifecycle";
 import { isValidTargetMinutes } from "./schedule";
+import { IDENTITY_COLOR_COUNT } from "./identity-color";
 
 const RULE_FIELDS = new Set<RuleField>(["url", "application", "windowTitle"]);
 const MATCH_OPERATORS = new Set<MatchOperator>(["contains", "equals"]);
@@ -177,7 +178,7 @@ function parseGoal(value: unknown): DailyGoal | undefined {
     ...(typeof value.colorIndex === "number"
       && Number.isInteger(value.colorIndex)
       && value.colorIndex >= 0
-      && value.colorIndex < 8
+      && value.colorIndex < IDENTITY_COLOR_COUNT
       ? { colorIndex: value.colorIndex }
       : {}),
     ...(isValidTrackingStartedAt(value.trackingStartedAt)
@@ -242,7 +243,7 @@ function parseActivityCategories(value: unknown): ActivityCategory[] {
       ...(typeof candidate.colorIndex === "number"
         && Number.isInteger(candidate.colorIndex)
         && candidate.colorIndex >= 0
-        && candidate.colorIndex < 8
+        && candidate.colorIndex < IDENTITY_COLOR_COUNT
         ? { colorIndex: candidate.colorIndex }
         : {}),
       rules

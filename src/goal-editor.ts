@@ -1,6 +1,10 @@
 import { Modal, Notice, Setting } from "obsidian";
-import { getGoalColor, GOAL_COLOR_COUNT } from "./activity-chart";
 import { GoalDeletionAction, isDeleteGoalAvailable } from "./goal-deletion";
+import {
+  getIdentityColor,
+  IDENTITY_COLOR_COUNT,
+  IDENTITY_COLOR_NAMES
+} from "./identity-color";
 import type DailyHubPlugin from "./main";
 import {
   createEmptyGoal,
@@ -165,8 +169,8 @@ export class GoalEditorModal extends Modal {
     });
     const choices: { label: string; value: number | undefined }[] = [
       { label: "Automatic", value: undefined },
-      ...Array.from({ length: GOAL_COLOR_COUNT }, (_, index) => ({
-        label: `Color ${index + 1}`,
+      ...Array.from({ length: IDENTITY_COLOR_COUNT }, (_, index) => ({
+        label: IDENTITY_COLOR_NAMES[index] ?? `Color ${index + 1}`,
         value: index
       }))
     ];
@@ -182,7 +186,10 @@ export class GoalEditorModal extends Modal {
           cls: "daily-hub-color-swatch",
           attr: { "aria-hidden": "true" }
         });
-        swatch.style.setProperty("--dh-goal-color", getGoalColor(this.draft.id, choice.value));
+        swatch.style.setProperty(
+          "--dh-identity-color",
+          getIdentityColor("goal", this.draft.id, choice.value)
+        );
       }
       button.addEventListener("click", () => {
         this.draft.colorIndex = choice.value;

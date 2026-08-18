@@ -10,7 +10,7 @@ import { formatDuration } from "../dashboard";
 import type { DailyGoal, GoalProgress } from "../models";
 import type { ActivityCategory } from "../models";
 import type { DailyComputerActivity } from "../activity-models";
-import { getGoalColor } from "../activity-chart";
+import { getIdentityColor } from "../identity-color";
 
 export type ActivityChartMode = "goals" | "apps" | "categories";
 
@@ -52,7 +52,11 @@ export function buildComputerActivityChartSeries(
     .map(([id, item]) => ({
       goalId: id,
       goalName: item.name,
-      color: getGoalColor(`${mode}:${id}`, mode === "categories" ? categoryById.get(id)?.colorIndex : undefined),
+      color: getIdentityColor(
+        mode === "apps" ? "app" : "category",
+        id,
+        mode === "categories" ? categoryById.get(id)?.colorIndex : undefined
+      ),
       points: days.map((day) => {
         if (day.future) return { dateKey: day.key, seconds: null, missingReason: "future" as const };
         if (day.computerActivity?.available !== true) {
@@ -112,7 +116,7 @@ export function renderActivityChartView(container: HTMLElement, options: Activit
         attr: { type: "button", "aria-pressed": String(visible), "aria-label": `${visible ? "Hide" : "Show"} ${item.goalName}` }
       });
       const swatch = button.createSpan({ cls: "daily-hub-chart-swatch", attr: { "aria-hidden": "true" } });
-      swatch.style.setProperty("--dh-goal-color", item.color);
+      swatch.style.setProperty("--dh-identity-color", item.color);
       button.createSpan({ text: item.goalName });
       button.addEventListener("click", () => {
         if (visible) options.hiddenGoalIds.add(item.goalId);
@@ -222,7 +226,7 @@ export function renderActivityChartView(container: HTMLElement, options: Activit
         continuing = true;
       });
       const path = createSvg("path", { d: pathParts.join(" "), class: "daily-hub-chart-series", fill: "none" });
-      path.style.setProperty("--dh-goal-color", item.color);
+      path.style.setProperty("--dh-identity-color", item.color);
 
       item.points.forEach((point, index) => {
         if (point.seconds === null) return;
@@ -235,7 +239,7 @@ export function renderActivityChartView(container: HTMLElement, options: Activit
           cx: String(xPosition(index)), cy: String(yPosition(point.seconds)), r: "4",
           class: "daily-hub-chart-point", tabindex: "0", role: "button", "aria-label": pointLabel
         });
-        circle.style.setProperty("--dh-goal-color", item.color);
+        circle.style.setProperty("--dh-identity-color", item.color);
         const openDate = (): void => options.selectDate(point.dateKey);
         circle.addEventListener("click", openDate);
         circle.addEventListener("keydown", (event) => {

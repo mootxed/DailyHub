@@ -11,7 +11,7 @@ import {
   calculateComputerActivityRange
 } from "./activity-analysis";
 import type { ComputerActivityRange, DailyComputerActivity } from "./activity-models";
-import { getGoalColor } from "./activity-chart";
+import { getIdentityColor } from "./identity-color";
 import {
   formatDuration,
   formatRemainingDuration,
@@ -976,7 +976,10 @@ export class DailyHubView extends ItemView {
     for (const goal of goals) {
       const item = breakdown.createDiv({ cls: "daily-hub-breakdown-item" });
       const configuredGoal = this.plugin.data.goals.find((candidate) => candidate.id === goal.goalId);
-      item.style.setProperty("--dh-goal-color", getGoalColor(goal.goalId, configuredGoal?.colorIndex));
+      item.style.setProperty(
+        "--dh-identity-color",
+        getIdentityColor("goal", goal.goalId, configuredGoal?.colorIndex)
+      );
       const heading = item.createDiv({ cls: "daily-hub-breakdown-heading" });
       heading.createEl("strong", { text: goal.goalName });
       heading.createEl("span", { text: formatDuration(goal.totalSeconds) });
@@ -1073,7 +1076,7 @@ export class DailyHubView extends ItemView {
       : "Not started";
 
     const card = container.createDiv({ cls: `daily-hub-goal is-${state}` });
-    card.style.setProperty("--dh-goal-color", getGoalColor(goal.id, goal.colorIndex));
+    card.style.setProperty("--dh-identity-color", getIdentityColor("goal", goal.id, goal.colorIndex));
     const heading = card.createDiv({ cls: "daily-hub-goal-heading" });
     heading.createEl("h3", { text: goal.name });
     const badge = heading.createDiv({ cls: "daily-hub-goal-state" });

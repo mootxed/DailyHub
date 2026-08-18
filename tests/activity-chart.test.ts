@@ -194,7 +194,7 @@ describe("activity line chart", () => {
     expect(new Set(["devops", "wiki", "typing"].map(getGoalColor)).size).toBe(3);
     expect(getGoalColorIndex("devops")).toBeGreaterThanOrEqual(0);
     expect(getGoalColorIndex("devops")).toBeLessThan(GOAL_COLOR_COUNT);
-    expect(getGoalColor("devops", 4)).toBe("var(--dh-goal-color-5)");
+    expect(getGoalColor("devops", 4)).toBe("var(--dh-identity-color-5)");
   });
 
   it.each([

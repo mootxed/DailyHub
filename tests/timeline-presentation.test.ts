@@ -6,6 +6,7 @@ import {
   formatActivityDuration,
   formatCompactActivityDuration,
   getNiceTimelineTickStep,
+  getTimelineNowMarkerPosition,
   getVisibleTimelineRange,
   type TimelinePresentationSegment
 } from "../src/timeline-presentation";
@@ -51,6 +52,16 @@ describe("timeline presentation", () => {
 
     const futureActivity = timestamp(1, 48);
     expect(getVisibleTimelineRange(timestamp(0), futureActivity, now + 10 * 60_000).endMs).toBe(futureActivity);
+  });
+
+  it("positions the Now marker only inside today's visible range", () => {
+    const range = getVisibleTimelineRange(timestamp(9), timestamp(11));
+    expect(getTimelineNowMarkerPosition(range, timestamp(10), true)).toBe(50);
+    expect(getTimelineNowMarkerPosition(range, range.startMs, true)).toBe(0);
+    expect(getTimelineNowMarkerPosition(range, range.endMs, true)).toBe(100);
+    expect(getTimelineNowMarkerPosition(range, timestamp(10), false)).toBeUndefined();
+    expect(getTimelineNowMarkerPosition(range, timestamp(8, 59), true)).toBeUndefined();
+    expect(getTimelineNowMarkerPosition(range, timestamp(11, 1), true)).toBeUndefined();
   });
 
   it("sorts top lanes and groups the remainder without changing totals", () => {

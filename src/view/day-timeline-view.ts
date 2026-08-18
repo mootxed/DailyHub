@@ -1,10 +1,11 @@
 import type { ActivityBreakdownItem, DailyComputerActivity } from "../activity-models";
-import { getGoalColor, getGoalColorIndex, GOAL_COLOR_COUNT } from "../activity-chart";
+import { getIdentityColor } from "../identity-color";
 import type { ActivityCategory } from "../models";
 import {
   buildTimelineLanes,
   formatActivityDuration,
   formatCompactActivityDuration,
+  getTimelineNowMarkerPosition,
   getVisibleTimelineRange,
   type TimelineLane,
   type TimelinePresentationSegment
@@ -51,19 +52,12 @@ function laneColors(
 ): Map<string, string> {
   const result = new Map<string, string>();
   const categoriesById = new Map(categories.map((category) => [category.id, category]));
-  const used = new Set<number>();
   for (const lane of lanes) {
-    const configured = mode === "categories" ? categoriesById.get(lane.id)?.colorIndex : undefined;
-    if (configured !== undefined) {
-      result.set(lane.id, getGoalColor(`category:${lane.id}`, configured));
-      used.add(configured);
-      continue;
-    }
-    const preferred = getGoalColorIndex(`${mode}:${lane.id}`);
-    let resolved = preferred;
-    while (used.has(resolved) && used.size < GOAL_COLOR_COUNT) resolved = (resolved + 1) % GOAL_COLOR_COUNT;
-    used.add(resolved);
-    result.set(lane.id, getGoalColor(`${mode}:${lane.id}`, resolved));
+    result.set(lane.id, getIdentityColor(
+      mode === "apps" ? "app" : "category",
+      lane.id,
+      mode === "categories" ? categoriesById.get(lane.id)?.colorIndex : undefined
+    ));
   }
   return result;
 }
@@ -108,6 +102,7 @@ export function renderDayTimelineView(container: HTMLElement, options: DayTimeli
   const scroll = section.createDiv({ cls: "daily-hub-day-timeline-scroll" });
   const content = scroll.createDiv({ cls: "daily-hub-day-timeline-content" });
   const position = (timestamp: number): number => ((timestamp - range.startMs) / span) * 100;
+  const nowPosition = getTimelineNowMarkerPosition(range, nowMs, options.isToday);
 
   const axis = content.createDiv({ cls: "daily-hub-day-timeline-axis" });
   axis.createSpan({ cls: "daily-hub-day-timeline-axis-spacer", attr: { "aria-hidden": "true" } });
@@ -115,13 +110,26 @@ export function renderDayTimelineView(container: HTMLElement, options: DayTimeli
   for (const tick of range.ticks) {
     tickTrack.createEl("span", { text: clock(tick), attr: { style: `left: ${position(tick)}%` } });
   }
+  if (nowPosition !== undefined) {
+    tickTrack.createDiv({
+      text: "Now",
+      cls: "daily-hub-day-timeline-now-label",
+      attr: { "aria-hidden": "true", style: `left: ${nowPosition}%` }
+    });
+  }
 
   const lanes = content.createDiv({ cls: "daily-hub-day-timeline-body" });
   const grid = lanes.createDiv({ cls: "daily-hub-day-timeline-grid", attr: { "aria-hidden": "true" } });
   for (const tick of range.ticks) grid.createDiv({ attr: { style: `left: ${position(tick)}%` } });
+  if (nowPosition !== undefined) {
+    grid.createDiv({
+      cls: "daily-hub-day-timeline-now-line",
+      attr: { style: `left: ${nowPosition}%` }
+    });
+  }
   for (const lane of presentation.lanes) {
     const row = lanes.createDiv({ cls: "daily-hub-day-timeline-row" });
-    const color = colors.get(lane.id) ?? getGoalColor(lane.id);
+    const color = colors.get(lane.id) ?? getIdentityColor(options.mode === "apps" ? "app" : "category", lane.id);
     row.style.setProperty("--dh-activity-color", color);
     const label = row.createDiv({
       cls: "daily-hub-day-timeline-label",

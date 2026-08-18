@@ -1,5 +1,5 @@
 import { Modal } from "obsidian";
-import { getGoalColor } from "./activity-chart";
+import { getIdentityColor } from "./identity-color";
 import type DailyHubPlugin from "./main";
 import { ruleMatches } from "./matcher";
 import type { DailyGoal } from "./models";
@@ -53,7 +53,10 @@ export class TrackingDiagnosticsModal extends Modal {
     const section = this.contentEl.createDiv({ cls: "daily-hub-diagnostics" });
     const goalRow = this.row(section, "Goal", this.goal.name);
     goalRow.addClass("is-goal");
-    goalRow.style.setProperty("--dh-goal-color", getGoalColor(this.goal.id, this.goal.colorIndex));
+    goalRow.style.setProperty(
+      "--dh-identity-color",
+      getIdentityColor("goal", this.goal.id, this.goal.colorIndex)
+    );
 
     section.createEl("h3", { text: "Current context" });
     this.row(section, "URL", diagnostics.context.url ?? "—");

@@ -36,6 +36,20 @@ describe("plugin data validation", () => {
     }]);
   });
 
+  it("accepts every shared identity color index and rejects indexes outside the palette", () => {
+    const data = normalizeData({
+      schemaVersion: DATA_SCHEMA_VERSION,
+      settings: {},
+      goals: [],
+      activityCategories: [
+        { id: "lime", name: "Lime", colorIndex: 9, rules: [] },
+        { id: "invalid", name: "Invalid", colorIndex: 10, rules: [] }
+      ]
+    });
+    expect(data.activityCategories[0]?.colorIndex).toBe(9);
+    expect(data.activityCategories[1]?.colorIndex).toBeUndefined();
+  });
+
   it("migrates legacy settings without losing valid goals", () => {
     const legacy = {
       settings: {
@@ -315,7 +329,7 @@ describe("plugin data validation", () => {
       goals: [{
         id: "history", name: "History", targetMinutes: 90, enabled: true,
         trackingStartedAt: "2026-08-01T10:00:00.000Z",
-        rules: [rule], colorIndex: 3,
+        rules: [rule], colorIndex: 9,
         configHistory: [
           { effectiveFrom: "invalid", targetMinutes: 15, schedule: {}, rules: [rule], contextTimeoutMinutes: 10 },
           { effectiveFrom: "2026-08-18T10:00:00.000Z", targetMinutes: 60, schedule: {}, rules: [rule], contextTimeoutMinutes: 20 },
@@ -325,7 +339,7 @@ describe("plugin data validation", () => {
       }]
     });
 
-    expect(data.goals[0]?.colorIndex).toBe(3);
+    expect(data.goals[0]?.colorIndex).toBe(9);
     expect(data.goals[0]?.configHistory?.map((revision) => [
       revision.effectiveFrom, revision.targetMinutes, revision.contextTimeoutMinutes
     ])).toEqual([

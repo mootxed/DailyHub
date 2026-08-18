@@ -64,6 +64,17 @@ export function getVisibleTimelineRange(firstMs: number, lastMs: number, maxEndM
   return { startMs, endMs, stepMs, ticks };
 }
 
+export function getTimelineNowMarkerPosition(
+  range: TimelineRange,
+  nowMs: number,
+  isToday: boolean
+): number | undefined {
+  const spanMs = range.endMs - range.startMs;
+  if (!isToday || !Number.isFinite(nowMs) || spanMs <= 0
+    || nowMs < range.startMs || nowMs > range.endMs) return undefined;
+  return Math.min(100, Math.max(0, ((nowMs - range.startMs) / spanMs) * 100));
+}
+
 export function formatActivityDuration(seconds: number): string {
   const safeSeconds = Math.max(0, seconds);
   if (safeSeconds > 0 && safeSeconds < 60) return `${Math.max(1, Math.round(safeSeconds))} sec`;

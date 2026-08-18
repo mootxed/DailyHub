@@ -1,4 +1,4 @@
-import { getGoalColor } from "../activity-chart";
+import { getIdentityColor } from "../identity-color";
 import { getHeatmapLevel, type GoalRangeStats, type RangeAnalytics } from "../analytics";
 import { formatDuration } from "../dashboard";
 import { getLocalDateRange } from "../date";
@@ -157,8 +157,8 @@ export function renderGoalConsistencyView(
   for (const goal of goals) {
     const card = list.createDiv({ cls: "daily-hub-consistency-card" });
     card.style.setProperty(
-      "--dh-goal-color",
-      getGoalColor(goal.goalId, configuredById.get(goal.goalId)?.colorIndex)
+      "--dh-identity-color",
+      getIdentityColor("goal", goal.goalId, configuredById.get(goal.goalId)?.colorIndex)
     );
     card.createEl("strong", { text: goal.goalName, cls: "daily-hub-consistency-title" });
     const metrics = card.createDiv({ cls: "daily-hub-consistency-metrics" });

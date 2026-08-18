@@ -1,6 +1,6 @@
 import { setIcon } from "obsidian";
 import type { ActivityBreakdownItem, DailyComputerActivity } from "../activity-models";
-import { getGoalColor } from "../activity-chart";
+import { getIdentityColor, type IdentityKind } from "../identity-color";
 import type { ActivityCategory } from "../models";
 import { formatActivityDuration } from "../timeline-presentation";
 
@@ -33,9 +33,11 @@ function displayItems(items: ActivityBreakdownItem[]): ActivityBreakdownItem[] {
 }
 
 function itemColor(item: ActivityBreakdownItem, mode: ActivityBreakdownMode, categories: ActivityCategory[]): string {
-  if (mode !== "categories" || item.id === "uncategorized") return getGoalColor(`${mode}:${item.id}`);
-  const category = categories.find((candidate) => candidate.id === item.id);
-  return getGoalColor(`category:${item.id}`, category?.colorIndex);
+  const kind: IdentityKind = mode === "apps" ? "app" : mode === "sites" ? "site" : "category";
+  const explicitColorIndex = mode === "categories"
+    ? categories.find((candidate) => candidate.id === item.id)?.colorIndex
+    : undefined;
+  return getIdentityColor(kind, item.id, explicitColorIndex);
 }
 
 function renderDomainBreakdown(container: HTMLElement, items: ActivityBreakdownItem[]): void {

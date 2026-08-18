@@ -1,7 +1,13 @@
 import type { DailyGoal, GoalProgress } from "./models";
 import { hasGoalTrackingStartedByDate } from "./goal-lifecycle";
+import {
+  getIdentityColor,
+  getIdentityColorIndex,
+  IDENTITY_COLOR_COUNT
+} from "./identity-color";
 
-export const GOAL_COLOR_COUNT = 8;
+/** @deprecated Use IDENTITY_COLOR_COUNT from identity-color. */
+export const GOAL_COLOR_COUNT = IDENTITY_COLOR_COUNT;
 
 export interface ActivityChartDayInput {
   dateKey: string;
@@ -46,7 +52,7 @@ export function buildActivityChartSeries(
   return goals.filter((goal) => goal.enabled).map((goal) => ({
     goalId: goal.id,
     goalName: goal.name,
-    color: getGoalColor(goal.id, goal.colorIndex),
+    color: getIdentityColor("goal", goal.id, goal.colorIndex),
     points: days.map((day) => {
       if (!hasGoalTrackingStartedByDate(goal, day.dateKey)) {
         return { dateKey: day.dateKey, seconds: null, missingReason: "not-tracked" };
@@ -64,20 +70,11 @@ export function buildActivityChartSeries(
 }
 
 export function getGoalColorIndex(goalId: string): number {
-  let hash = 2_166_136_261;
-  for (let index = 0; index < goalId.length; index += 1) {
-    hash ^= goalId.charCodeAt(index);
-    hash = Math.imul(hash, 16_777_619);
-  }
-  return (hash >>> 0) % GOAL_COLOR_COUNT;
+  return getIdentityColorIndex("goal", goalId);
 }
 
 export function getGoalColor(goalId: string, colorIndex?: number): string {
-  const resolved = colorIndex !== undefined && Number.isInteger(colorIndex)
-    && colorIndex >= 0 && colorIndex < GOAL_COLOR_COUNT
-    ? colorIndex
-    : getGoalColorIndex(goalId);
-  return `var(--dh-goal-color-${resolved + 1})`;
+  return getIdentityColor("goal", goalId, colorIndex);
 }
 
 export function filterActivityChartSeries(

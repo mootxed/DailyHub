@@ -7,6 +7,11 @@ import {
   type AfkConfigStatus
 } from "./afk-config";
 import { GoalEditorModal } from "./goal-editor";
+import {
+  getIdentityColor,
+  IDENTITY_COLOR_COUNT,
+  IDENTITY_COLOR_NAMES
+} from "./identity-color";
 import { createEmptyActivityCategory, createId, type ActivityCategory } from "./models";
 import type DailyHubPlugin from "./main";
 
@@ -171,14 +176,6 @@ export class DailyHubSettingTab extends PluginSettingTab {
         await this.plugin.savePluginData();
         await this.plugin.refreshViews();
       }))
-      .addDropdown((dropdown) => {
-        for (let color = 0; color < 8; color += 1) dropdown.addOption(String(color), `Color ${color + 1}`);
-        dropdown.setValue(String(category.colorIndex ?? index % 8)).onChange(async (value) => {
-          category.colorIndex = Number(value);
-          await this.plugin.savePluginData();
-          await this.plugin.refreshViews();
-        });
-      })
       .addButton((button) => button.setIcon("arrow-up").setTooltip("Move up").setDisabled(index === 0).onClick(async () => {
         const previous = this.plugin.data.activityCategories[index - 1];
         if (previous === undefined) return;
@@ -205,6 +202,45 @@ export class DailyHubSettingTab extends PluginSettingTab {
         await this.plugin.refreshViews();
         this.display();
       }));
+
+    const colorSetting = new Setting(card)
+      .setName("Identity color")
+      .setDesc("Use a stable automatic color or choose a shared identity color.");
+    const colors = colorSetting.controlEl.createDiv({
+      cls: "daily-hub-color-picker",
+      attr: { role: "group", "aria-label": `${category.name} color` }
+    });
+    const choices: { label: string; value: number | undefined }[] = [
+      { label: "Automatic", value: undefined },
+      ...Array.from({ length: IDENTITY_COLOR_COUNT }, (_, colorIndex) => ({
+        label: IDENTITY_COLOR_NAMES[colorIndex] ?? `Color ${colorIndex + 1}`,
+        value: colorIndex
+      }))
+    ];
+    for (const choice of choices) {
+      const selected = category.colorIndex === choice.value;
+      const button = colors.createEl("button", {
+        cls: `daily-hub-color-choice${choice.value === undefined ? " is-auto" : ""}${selected ? " is-selected" : ""}`,
+        text: choice.value === undefined ? "Auto" : "",
+        attr: { type: "button", "aria-label": choice.label, "aria-pressed": String(selected) }
+      });
+      if (choice.value !== undefined) {
+        const swatch = button.createSpan({
+          cls: "daily-hub-color-swatch",
+          attr: { "aria-hidden": "true" }
+        });
+        swatch.style.setProperty(
+          "--dh-identity-color",
+          getIdentityColor("category", category.id, choice.value)
+        );
+      }
+      button.addEventListener("click", async () => {
+        category.colorIndex = choice.value;
+        await this.plugin.savePluginData();
+        await this.plugin.refreshViews();
+        this.display();
+      });
+    }
 
     category.rules.forEach((rule) => {
       new Setting(card)
