@@ -30,6 +30,7 @@ export interface RangeAnalytics {
   averageSeconds: number | undefined;
   activeDays: number;
   availableDays: number;
+  trackedDays: number;
   completedGoals: number;
   goalOpportunities: number;
   completionRate: number | undefined;
@@ -165,15 +166,17 @@ export function calculateRangeAnalytics(
   const enabledGoals = goals.filter((goal) => goal.enabled);
   const days = progressDays.map((day) => dayAnalytics(day, enabledGoals));
   const available = days.filter((day) => day.available);
+  const trackedDays = available.filter((day) => day.trackedGoalCount > 0);
   const totalSeconds = available.reduce((total, day) => total + (day.totalSeconds ?? 0), 0);
   const completedGoals = available.reduce((total, day) => total + (day.completedGoals ?? 0), 0);
   const goalOpportunities = available.reduce((total, day) => total + day.goalCount, 0);
 
   return {
     totalSeconds,
-    averageSeconds: available.length === 0 ? undefined : totalSeconds / available.length,
+    averageSeconds: trackedDays.length === 0 ? undefined : totalSeconds / trackedDays.length,
     activeDays: available.filter((day) => (day.totalSeconds ?? 0) > 0).length,
     availableDays: available.length,
+    trackedDays: trackedDays.length,
     completedGoals,
     goalOpportunities,
     completionRate: goalOpportunities === 0 ? undefined : completedGoals / goalOpportunities,

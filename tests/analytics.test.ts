@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { calculateRangeAnalytics, getHeatmapLevel } from "../src/analytics";
-import { getLocalDateRange } from "../src/date";
+import { addLocalDays, getLocalDateRange, toLocalDateKey } from "../src/date";
 import { createDefaultSchedule, type ActivityEvent, type DailyGoal, type DayActivity, type GoalProgress } from "../src/models";
 import { calculateRangeProgress, type DayProgressResult } from "../src/range-progress";
 
@@ -48,7 +48,7 @@ function day(dateKey: string, devops: number, typing: number): DayProgressResult
 }
 
 describe("30-day range analytics", () => {
-  it("calculates totals, available-day average, active days, opportunities, and stable goal order", () => {
+  it("calculates totals, tracked-day average, active days, opportunities, and stable goal order", () => {
     const analytics = calculateRangeAnalytics(goals, [
       day("2026-08-14", 3_600, 1_800),
       day("2026-08-15", 0, 900),
@@ -61,6 +61,7 @@ describe("30-day range analytics", () => {
       averageSeconds: 2_100,
       activeDays: 2,
       availableDays: 3,
+      trackedDays: 3,
       completedGoals: 2,
       goalOpportunities: 6,
       completionRate: 1 / 3
@@ -74,6 +75,159 @@ describe("30-day range analytics", () => {
       trackedGoalCount: 2,
       goalCount: 2,
       progressRatio: undefined
+    });
+  });
+
+  it("averages a new goal Today across only its one tracked day", () => {
+    const trackedGoal = {
+      ...devopsGoal,
+      trackingStartedAt: new Date(2026, 7, 17, 12).toISOString()
+    };
+    const progressDays = Array.from({ length: 30 }, (_, index) => {
+      const dateKey = toLocalDateKey(addLocalDays("2026-07-19", index));
+      return day(dateKey, index === 29 ? 1_800 : 0, 0);
+    });
+    const analytics = calculateRangeAnalytics([trackedGoal], progressDays);
+
+    expect(analytics).toMatchObject({
+      totalSeconds: 1_800,
+      averageSeconds: 1_800,
+      activeDays: 1,
+      availableDays: 30,
+      trackedDays: 1
+    });
+  });
+
+  it("keeps a zero-activity tracked day in the average denominator", () => {
+    const trackedGoal = {
+      ...devopsGoal,
+      trackingStartedAt: new Date(2026, 7, 16, 12).toISOString()
+    };
+    const progressDays = Array.from({ length: 30 }, (_, index) => {
+      const dateKey = toLocalDateKey(addLocalDays("2026-07-19", index));
+      return day(dateKey, index === 28 ? 3_600 : 0, 0);
+    });
+    const analytics = calculateRangeAnalytics([trackedGoal], progressDays);
+
+    expect(analytics).toMatchObject({
+      totalSeconds: 3_600,
+      averageSeconds: 1_800,
+      activeDays: 1,
+      availableDays: 30,
+      trackedDays: 2
+    });
+  });
+
+  it("excludes unavailable tracked days and available pre-tracking days from the average", () => {
+    const trackedGoal = {
+      ...devopsGoal,
+      trackingStartedAt: new Date(2026, 7, 15, 12).toISOString()
+    };
+    const analytics = calculateRangeAnalytics([trackedGoal], [
+      day("2026-08-14", 0, 0),
+      day("2026-08-15", 1_800, 0),
+      { dateKey: "2026-08-16", future: false, progress: undefined }
+    ]);
+
+    expect(analytics).toMatchObject({
+      totalSeconds: 1_800,
+      averageSeconds: 1_800,
+      activeDays: 1,
+      availableDays: 2,
+      trackedDays: 1
+    });
+    expect(analytics.days[2]).toMatchObject({ available: false, trackedGoalCount: 1 });
+  });
+
+  it("returns an undefined average when available days all predate tracking", () => {
+    const trackedGoal = {
+      ...devopsGoal,
+      trackingStartedAt: new Date(2026, 7, 18, 12).toISOString()
+    };
+    const progressDays = Array.from({ length: 30 }, (_, index) => (
+      day(toLocalDateKey(addLocalDays("2026-07-19", index)), 0, 0)
+    ));
+    const analytics = calculateRangeAnalytics([trackedGoal], progressDays);
+
+    expect(analytics).toMatchObject({
+      totalSeconds: 0,
+      averageSeconds: undefined,
+      activeDays: 0,
+      availableDays: 30,
+      trackedDays: 0
+    });
+  });
+
+  it("returns a zero average when tracked days have zero activity", () => {
+    const trackedGoal = {
+      ...devopsGoal,
+      trackingStartedAt: new Date(2026, 7, 13, 12).toISOString()
+    };
+    const progressDays = Array.from({ length: 5 }, (_, index) => (
+      day(toLocalDateKey(addLocalDays("2026-08-13", index)), 0, 0)
+    ));
+    const analytics = calculateRangeAnalytics([trackedGoal], progressDays);
+
+    expect(analytics).toMatchObject({
+      totalSeconds: 0,
+      averageSeconds: 0,
+      activeDays: 0,
+      availableDays: 5,
+      trackedDays: 5
+    });
+  });
+
+  it("preserves the historical average denominator for a legacy goal", () => {
+    const progressDays = Array.from({ length: 30 }, (_, index) => {
+      const dateKey = toLocalDateKey(addLocalDays("2026-07-19", index));
+      return day(dateKey, index === 29 ? 1_800 : 0, 0);
+    });
+    const analytics = calculateRangeAnalytics([devopsGoal], progressDays);
+
+    expect(analytics).toMatchObject({
+      totalSeconds: 1_800,
+      averageSeconds: 60,
+      availableDays: 30,
+      trackedDays: 30
+    });
+  });
+
+  it("counts a day when any goal is tracked in a mixed legacy and new-goal range", () => {
+    const newGoal = {
+      ...typingGoal,
+      trackingStartedAt: new Date(2026, 7, 17, 12).toISOString()
+    };
+    const analytics = calculateRangeAnalytics([devopsGoal, newGoal], [
+      day("2026-08-16", 1_800, 0),
+      day("2026-08-17", 0, 1_800)
+    ]);
+
+    expect(analytics).toMatchObject({
+      totalSeconds: 3_600,
+      averageSeconds: 1_800,
+      availableDays: 2,
+      trackedDays: 2
+    });
+    expect(analytics.days.map((trackedDay) => trackedDay.trackedGoalCount)).toEqual([1, 2]);
+  });
+
+  it("keeps available rest days after tracking began in the calendar-day average", () => {
+    const schedule = createDefaultSchedule(60);
+    schedule.saturday.enabled = false;
+    schedule.sunday.enabled = false;
+    const analytics = calculateRangeAnalytics([{ ...devopsGoal, schedule }], [
+      day("2026-08-15", 0, 0),
+      day("2026-08-16", 0, 0),
+      day("2026-08-17", 3_600, 0)
+    ]);
+
+    expect(analytics).toMatchObject({
+      totalSeconds: 3_600,
+      averageSeconds: 1_200,
+      activeDays: 1,
+      availableDays: 3,
+      trackedDays: 3,
+      goalOpportunities: 1
     });
   });
 
@@ -156,7 +310,13 @@ describe("30-day range analytics", () => {
   it("returns undefined rates when no days or goal opportunities are available", () => {
     expect(calculateRangeAnalytics(goals, []).averageSeconds).toBeUndefined();
     const noGoals = calculateRangeAnalytics([], [day("2026-08-17", 0, 0)]);
-    expect(noGoals).toMatchObject({ availableDays: 1, goalOpportunities: 0, completionRate: undefined });
+    expect(noGoals).toMatchObject({
+      averageSeconds: undefined,
+      availableDays: 1,
+      trackedDays: 0,
+      goalOpportunities: 0,
+      completionRate: undefined
+    });
     expect(noGoals.days[0]?.progressRatio).toBeUndefined();
   });
 
