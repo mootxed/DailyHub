@@ -1,5 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { createEmptyRule, updateGoalEnabled, type DailyGoal } from "../src/models";
+import {
+  createEmptyRule,
+  DATA_SCHEMA_VERSION,
+  deleteGoalData,
+  updateGoalEnabled,
+  type DailyGoal,
+  type DailyHubData
+} from "../src/models";
+
+const storedGoal: DailyGoal = {
+  id: "devops",
+  name: "DevOps",
+  targetMinutes: 90,
+  contextTimeoutMinutes: 10,
+  enabled: true,
+  rules: []
+};
 
 describe("goal mutations", () => {
   it("uses URL for new primary rules and Application for continuation rules", () => {
@@ -59,5 +75,45 @@ describe("goal mutations", () => {
 
   it("does nothing when the goal no longer exists", () => {
     expect(updateGoalEnabled([], "missing", false)).toBe(false);
+  });
+
+  it("deletes only the selected goal and its notification entries", () => {
+    const otherGoal: DailyGoal = { ...storedGoal, id: "typing", name: "Typing" };
+    const data: DailyHubData = {
+      schemaVersion: DATA_SCHEMA_VERSION,
+      settings: {
+        activityWatchUrl: "http://localhost:5600",
+        refreshIntervalSeconds: 60,
+        completionNotifications: true
+      },
+      goals: [structuredClone(storedGoal), structuredClone(otherGoal)],
+      notifiedCompletions: [
+        "2026-08-17:devops",
+        "2026-08-18:devops",
+        "2026-08-18:typing",
+        "unrelated-entry"
+      ]
+    };
+
+    expect(deleteGoalData(data, "devops")).toBe(true);
+    expect(data.goals).toEqual([otherGoal]);
+    expect(data.notifiedCompletions).toEqual(["2026-08-18:typing", "unrelated-entry"]);
+  });
+
+  it("leaves all data unchanged when deleting an unknown goal", () => {
+    const data: DailyHubData = {
+      schemaVersion: DATA_SCHEMA_VERSION,
+      settings: {
+        activityWatchUrl: "http://localhost:5600",
+        refreshIntervalSeconds: 60,
+        completionNotifications: true
+      },
+      goals: [structuredClone(storedGoal)],
+      notifiedCompletions: ["2026-08-18:devops", "2026-08-18:missing"]
+    };
+    const before = structuredClone(data);
+
+    expect(deleteGoalData(data, "missing")).toBe(false);
+    expect(data).toEqual(before);
   });
 });

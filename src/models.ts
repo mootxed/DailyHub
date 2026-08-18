@@ -152,6 +152,13 @@ export function updateGoalEnabled(goals: DailyGoal[], goalId: string, enabled: b
   return true;
 }
 
+export function deleteGoalData(data: DailyHubData, goalId: string): boolean {
+  if (!data.goals.some((goal) => goal.id === goalId)) return false;
+  data.goals = data.goals.filter((goal) => goal.id !== goalId);
+  data.notifiedCompletions = data.notifiedCompletions.filter((key) => !key.endsWith(`:${goalId}`));
+  return true;
+}
+
 export function createDefaultSchedule(targetMinutes: number): GoalSchedule {
   return Object.fromEntries(WEEKDAYS.map((weekday) => [
     weekday,

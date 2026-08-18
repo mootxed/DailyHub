@@ -1,4 +1,5 @@
 import { Modal, Notice, Setting } from "obsidian";
+import { GoalDeletionAction, isDeleteGoalAvailable } from "./goal-deletion";
 import type DailyHubPlugin from "./main";
 import {
   createEmptyGoal,
@@ -29,12 +30,64 @@ function copyGoal(goal: DailyGoal): DailyGoal {
   };
 }
 
+class DeleteGoalConfirmationModal extends Modal {
+  private cancelButton: HTMLButtonElement | undefined;
+  private deleteButton: HTMLButtonElement | undefined;
+
+  constructor(
+    plugin: DailyHubPlugin,
+    private readonly goalName: string,
+    private readonly deletion: GoalDeletionAction,
+    private readonly onDeleted: () => void
+  ) {
+    super(plugin.app);
+  }
+
+  override onOpen(): void {
+    this.titleEl.setText(`Delete "${this.goalName}"?`);
+    this.contentEl.createEl("p", { text: "This will permanently remove this goal." });
+
+    const actions = this.contentEl.createDiv({ cls: "daily-hub-modal-actions" });
+    this.cancelButton = actions.createEl("button", { text: "Cancel" });
+    this.cancelButton.addEventListener("click", () => {
+      this.deletion.cancel();
+      this.close();
+    });
+    this.deleteButton = actions.createEl("button", { text: "Delete", cls: "mod-warning" });
+    this.deleteButton.addEventListener("click", () => { void this.confirmDeletion(); });
+  }
+
+  override onClose(): void {
+    this.contentEl.empty();
+  }
+
+  private async confirmDeletion(): Promise<void> {
+    this.setButtonsDisabled(true);
+    try {
+      if (!await this.deletion.confirm()) return;
+      this.close();
+      this.onDeleted();
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      console.warn(`[Daily Hub] Could not delete goal: ${detail}`);
+      new Notice(`Daily Hub: could not delete goal. ${detail}`);
+      this.setButtonsDisabled(false);
+    }
+  }
+
+  private setButtonsDisabled(disabled: boolean): void {
+    if (this.cancelButton !== undefined) this.cancelButton.disabled = disabled;
+    if (this.deleteButton !== undefined) this.deleteButton.disabled = disabled;
+  }
+}
+
 export class GoalEditorModal extends Modal {
   private readonly plugin: DailyHubPlugin;
   private draft: DailyGoal;
   private readonly onSaved: (() => void) | undefined;
   private readonly scheduleTargetInputs = new Map<Weekday, HTMLInputElement>();
   private readonly protectedWeekdays: Set<Weekday>;
+  private readonly editingExistingGoal: boolean;
   private defaultTargetValue: string;
 
   constructor(plugin: DailyHubPlugin, goal?: DailyGoal, onSaved?: () => void) {
@@ -42,6 +95,7 @@ export class GoalEditorModal extends Modal {
     this.plugin = plugin;
     this.draft = goal === undefined ? createEmptyGoal() : copyGoal(goal);
     this.onSaved = onSaved;
+    this.editingExistingGoal = goal !== undefined;
     this.defaultTargetValue = String(this.draft.targetMinutes);
     this.protectedWeekdays = getCustomTargetWeekdays(this.draft);
   }
@@ -117,6 +171,10 @@ export class GoalEditorModal extends Modal {
     this.renderSchedule();
 
     const actions = this.contentEl.createDiv({ cls: "daily-hub-modal-actions" });
+    if (isDeleteGoalAvailable(this.plugin, this.draft.id)) {
+      const remove = actions.createEl("button", { text: "Delete goal", cls: "mod-warning" });
+      remove.addEventListener("click", () => { this.confirmDelete(); });
+    }
     const save = actions.createEl("button", { text: "Save goal", cls: "mod-cta" });
     save.addEventListener("click", () => { void this.save(); });
   }
@@ -260,6 +318,12 @@ export class GoalEditorModal extends Modal {
   }
 
   private async save(): Promise<void> {
+    if (this.editingExistingGoal && !this.plugin.hasGoal(this.draft.id)) {
+      new Notice("Daily Hub: this goal no longer exists");
+      this.onSaved?.();
+      this.close();
+      return;
+    }
     this.draft.name = this.draft.name.trim();
     this.draft.rules = this.draft.rules.map((rule) => ({ ...rule, value: rule.value.trim() }));
     if (this.draft.name.length === 0) {
@@ -290,5 +354,13 @@ export class GoalEditorModal extends Modal {
     await this.plugin.upsertGoal(this.draft);
     this.onSaved?.();
     this.close();
+  }
+
+  private confirmDelete(): void {
+    const deletion = new GoalDeletionAction(this.plugin, this.draft.id);
+    new DeleteGoalConfirmationModal(this.plugin, this.draft.name, deletion, () => {
+      this.onSaved?.();
+      this.close();
+    }).open();
   }
 }

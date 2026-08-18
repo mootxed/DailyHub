@@ -7,6 +7,7 @@ import { GoalEditorModal } from "./goal-editor";
 import { startGoalTracking } from "./goal-lifecycle";
 import {
   DEFAULT_DATA,
+  deleteGoalData,
   updateGoalEnabled,
   type ActivityWatchSnapshot,
   type DailyGoal,
@@ -89,8 +90,7 @@ export default class DailyHubPlugin extends Plugin {
   }
 
   async deleteGoal(id: string): Promise<void> {
-    this.data.goals = this.data.goals.filter((goal) => goal.id !== id);
-    this.data.notifiedCompletions = this.data.notifiedCompletions.filter((key) => !key.endsWith(`:${id}`));
+    if (!deleteGoalData(this.data, id)) return;
     await this.savePluginData();
     await this.refreshViews();
   }
