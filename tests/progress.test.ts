@@ -162,6 +162,96 @@ describe("daily progress", () => {
     expect(result[0]?.activeSeconds).toBe(300);
   });
 
+  it("counts a browser URL while unrelated applications are in the foreground", () => {
+    const wikipedia = goal("wikipedia", 10, urlRule("wikipedia.de"));
+    const result = calculateDailyProgress([wikipedia], activity({
+      browserEvents: [event(
+        0,
+        300,
+        { url: "https://www.wikipedia.de/", title: "Wikipedia, die freie Enzyklopädie" },
+        DATE,
+        "aw-watcher-web-chrome_host"
+      )],
+      windowEvents: [
+        event(0, 60, { app: "Google Chrome", title: "Wikipedia - Google Chrome" }),
+        event(60, 40, { app: "Obsidian", title: "Daily note" }),
+        event(100, 70, { app: "Google Chrome", title: "Wikipedia - Google Chrome" }),
+        event(170, 10, { app: "Spectacle", title: "Screenshot" }),
+        event(180, 120, { app: "Obsidian", title: "Daily note" })
+      ],
+      afkEvents: [event(0, 300, { status: "not-afk" })]
+    }), DATE);
+
+    expect(result[0]?.activeSeconds).toBe(300);
+  });
+
+  it("uses browser tab changes as the authoritative URL timeline", () => {
+    const wikipedia = goal("wikipedia", 10, urlRule("wikipedia.de"));
+    const result = calculateDailyProgress([wikipedia], activity({
+      browserEvents: [
+        event(0, 100, { url: "https://www.wikipedia.de/" }, DATE, "aw-watcher-web-chrome_host"),
+        event(100, 20, { url: "https://example.com/" }, DATE, "aw-watcher-web-chrome_host"),
+        event(120, 80, { url: "https://www.wikipedia.de/" }, DATE, "aw-watcher-web-chrome_host")
+      ],
+      windowEvents: [event(0, 200, { app: "Obsidian", title: "Daily note" })]
+    }), DATE);
+
+    expect(result[0]?.activeSeconds).toBe(180);
+  });
+
+  it("excludes AFK time from a background browser URL", () => {
+    const wikipedia = goal("wikipedia", 10, urlRule("wikipedia.de"));
+    const result = calculateDailyProgress([wikipedia], activity({
+      browserEvents: [event(0, 300, { url: "https://www.wikipedia.de/" })],
+      windowEvents: [event(0, 300, { app: "Obsidian" })],
+      afkEvents: [event(100, 60, { status: "afk" })]
+    }), DATE);
+
+    expect(result[0]?.activeSeconds).toBe(240);
+  });
+
+  it("honors countDuringAfk for a background browser URL", () => {
+    const wikipedia = goal("wikipedia", 10, urlRule("wikipedia.de", "primary", true));
+    const result = calculateDailyProgress([wikipedia], activity({
+      browserEvents: [event(0, 300, { url: "https://www.wikipedia.de/" })],
+      windowEvents: [event(0, 300, { app: "Obsidian" })],
+      afkEvents: [event(100, 60, { status: "afk" })]
+    }), DATE);
+
+    expect(result[0]?.activeSeconds).toBe(300);
+  });
+
+  it("counts browser URL activity when no foreground window data exists", () => {
+    const wikipedia = goal("wikipedia", 10, urlRule("wikipedia.de"));
+    const result = calculateDailyProgress([wikipedia], activity({
+      browserEvents: [event(
+        0,
+        120,
+        { url: "https://www.wikipedia.de/" },
+        DATE,
+        "aw-watcher-web-chrome_host"
+      )],
+      afkEvents: [event(0, 120, { status: "not-afk" })]
+    }), DATE);
+
+    expect(result[0]?.activeSeconds).toBe(120);
+  });
+
+  it("keeps one deterministic winner for overlapping URL and application activity", () => {
+    const goals = [
+      goal("z-url", 10, urlRule("wikipedia.de")),
+      goal("a-app", 10, appRule("Obsidian"))
+    ];
+    const result = calculateDailyProgress(goals, activity({
+      browserEvents: [event(0, 300, { url: "https://www.wikipedia.de/" })],
+      windowEvents: [event(0, 300, { app: "Obsidian" })]
+    }), DATE);
+
+    expect(result.find((item) => item.goalId === "a-app")?.activeSeconds).toBe(300);
+    expect(result.find((item) => item.goalId === "z-url")?.activeSeconds).toBe(0);
+    expect(result.reduce((sum, item) => sum + item.activeSeconds, 0)).toBe(300);
+  });
+
   it("bridges the real-data-shaped keybr browser heartbeat gap", () => {
     const typing = goal("typing", 30, urlRule("keybr.com"));
     const result = calculateDailyProgress([typing], activity({
@@ -182,11 +272,6 @@ describe("daily progress", () => {
   it("uses a zero-duration tab change as point-in-time evidence until the next heartbeat", () => {
     const course = goal("course", 30, urlRule("udemy.com/course/docker-ru"));
     const result = calculateDailyProgress([course], activity({
-      windowEvents: [event(
-        0,
-        240,
-        { app: "Google-chrome", title: "Course: Docker from scratch | Udemy - Google Chrome" }
-      )],
       browserEvents: [
         event(
           0,
@@ -213,6 +298,31 @@ describe("daily progress", () => {
     }), DATE);
 
     expect(result[0]?.activeSeconds).toBe(240);
+  });
+
+  it("bridges a bounded browser heartbeat gap without foreground browser focus", () => {
+    const wikipedia = goal("wikipedia", 10, urlRule("wikipedia.de"));
+    const result = calculateDailyProgress([wikipedia], activity({
+      browserEvents: [
+        event(
+          0,
+          30,
+          { url: "https://www.wikipedia.de/" },
+          DATE,
+          "aw-watcher-web-chrome_host"
+        ),
+        event(
+          90,
+          60,
+          { url: "https://www.wikipedia.de/" },
+          DATE,
+          "aw-watcher-web-chrome_host"
+        )
+      ],
+      windowEvents: [event(0, 150, { app: "Obsidian" })]
+    }), DATE);
+
+    expect(result[0]?.activeSeconds).toBe(150);
   });
 
   it("does not let a zero-duration browser event create time without a foreground window", () => {
@@ -265,7 +375,7 @@ describe("daily progress", () => {
     expect(result[0]?.activeSeconds).toBe(60);
   });
 
-  it("does not keep counting a stale active URL after the foreground browser title changes", () => {
+  it("keeps counting direct browser evidence after the foreground title changes", () => {
     const course = goal("course", 30, urlRule("example.com/course"));
     const result = calculateDailyProgress([course], activity({
       windowEvents: [
@@ -281,7 +391,7 @@ describe("daily progress", () => {
       )]
     }), DATE);
 
-    expect(result[0]?.activeSeconds).toBe(60);
+    expect(result[0]?.activeSeconds).toBe(180);
   });
 
   it("lets newer point evidence supersede an overlapping event from the previous tab", () => {
@@ -312,7 +422,7 @@ describe("daily progress", () => {
     expect(result[0]?.activeSeconds).toBe(60);
   });
 
-  it("does not carry Chrome browser context into a Firefox foreground window", () => {
+  it("counts direct Chrome watcher evidence with Firefox in the foreground", () => {
     const typing = goal("typing", 30, urlRule("keybr.com"));
     const result = calculateDailyProgress([typing], activity({
       windowEvents: [event(0, 120, { app: "Firefox", title: "Practice - Mozilla Firefox" })],
@@ -325,7 +435,7 @@ describe("daily progress", () => {
       )]
     }), DATE);
 
-    expect(result[0]?.activeSeconds).toBe(0);
+    expect(result[0]?.activeSeconds).toBe(30);
   });
 
   it("stops inferred browser context as soon as the foreground application changes", () => {
@@ -372,7 +482,7 @@ describe("daily progress", () => {
     expect(result[0]?.activeSeconds).toBe(40);
   });
 
-  it("does not let evidence from another browser cancel the foreground browser context", () => {
+  it("lets newer browser evidence win regardless of the foreground browser", () => {
     const typing = goal("typing", 30, urlRule("keybr.com"));
     const result = calculateDailyProgress([typing], activity({
       windowEvents: [event(0, 100, { app: "Google-chrome", title: "Practice - Google Chrome" })],
@@ -394,7 +504,7 @@ describe("daily progress", () => {
       ]
     }), DATE);
 
-    expect(result[0]?.activeSeconds).toBe(100);
+    expect(result[0]?.activeSeconds).toBe(40);
   });
 
   it("always uses a real active browser event instead of inferred context", () => {
@@ -598,7 +708,7 @@ describe("daily progress", () => {
     expect(result[0]?.activeSeconds).toBe(70);
   });
 
-  it("does not apply a stale browser URL after Terminal becomes active", () => {
+  it("keeps direct browser URL activity while Terminal is in the foreground", () => {
     const urlGoal = goal("typing", 30, urlRule("keybr.com"));
     const result = calculateDailyProgress([urlGoal], activity({
       windowEvents: [
@@ -613,10 +723,10 @@ describe("daily progress", () => {
         "aw-watcher-web-firefox_host"
       )]
     }), DATE);
-    expect(result[0]?.activeSeconds).toBe(300);
+    expect(result[0]?.activeSeconds).toBe(600);
   });
 
-  it("selects the browser bucket that matches the active browser", () => {
+  it("uses the latest browser watcher evidence independently of the active window", () => {
     const urlGoal = goal("typing", 30, urlRule("keybr.com"));
     const result = calculateDailyProgress([urlGoal], activity({
       windowEvents: [event(0, 600, { app: "Firefox", title: "Keybr — Mozilla Firefox" })],
@@ -625,15 +735,15 @@ describe("daily progress", () => {
         event(100, 500, { url: "https://example.com", title: "Example" }, DATE, "aw-watcher-web-chrome_host")
       ]
     }), DATE);
-    expect(result[0]?.activeSeconds).toBe(600);
+    expect(result[0]?.activeSeconds).toBe(100);
   });
 
-  it("does not trust a browser URL without an active window event", () => {
+  it("trusts direct browser URL evidence without an active window event", () => {
     const urlGoal = goal("typing", 30, urlRule("keybr.com"));
     const result = calculateDailyProgress([urlGoal], activity({
       browserEvents: [event(0, 300, { url: "https://keybr.com", title: "Keybr" })]
     }), DATE);
-    expect(result[0]?.activeSeconds).toBe(0);
+    expect(result[0]?.activeSeconds).toBe(300);
   });
 
   it("cuts overlapping window, browser, and AFK events at every boundary", () => {
@@ -1034,7 +1144,7 @@ describe("daily progress", () => {
     expect(result[0]?.activeSeconds).toBe(300);
   });
 
-  it("does not count a passive URL rule when its browser is in the background", () => {
+  it("counts an AFK-eligible URL rule while its browser is in the background", () => {
     const result = calculateDailyProgress([contextGoal(10, true)], activity({
       windowEvents: [event(0, 900, { app: "Terminal", title: "Shell" })],
       browserEvents: [event(
@@ -1046,7 +1156,7 @@ describe("daily progress", () => {
       )],
       afkEvents: [event(0, 900, { status: "afk" })]
     }), DATE);
-    expect(result[0]?.activeSeconds).toBe(0);
+    expect(result[0]?.activeSeconds).toBe(900);
   });
 
   it("chooses only AFK-eligible goals before applying deterministic overlap fallback", () => {

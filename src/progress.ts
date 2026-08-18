@@ -10,8 +10,7 @@ interface TimedEvent {
 }
 
 interface BrowserEventIndex {
-  bySource: Map<string, TimedEvent[]>;
-  withoutSource: TimedEvent[];
+  events: TimedEvent[];
 }
 
 interface GoalContext {
@@ -77,6 +76,18 @@ function latestEventAtOrBefore(events: TimedEvent[], timestamp: number): TimedEv
   return events[low - 1];
 }
 
+function earliestEventAfter(events: TimedEvent[], timestamp: number): TimedEvent | undefined {
+  let low = 0;
+  let high = events.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    const event = events[middle];
+    if (event !== undefined && event.startMs <= timestamp) low = middle + 1;
+    else high = middle;
+  }
+  return events[low];
+}
+
 function stringData(event: TimedEvent | undefined, key: string): string | undefined {
   const value = event?.event.data[key];
   return typeof value === "string" ? value : undefined;
@@ -97,19 +108,7 @@ function browserSourceKey(event: TimedEvent): string | undefined {
 }
 
 function indexBrowserEvents(events: TimedEvent[]): BrowserEventIndex {
-  const eventsBySource = new Map<string, TimedEvent[]>();
-  const withoutSource: TimedEvent[] = [];
-  for (const event of events) {
-    const source = browserSourceKey(event);
-    if (source === undefined) {
-      withoutSource.push(event);
-      continue;
-    }
-    const sourceEvents = eventsBySource.get(source) ?? [];
-    sourceEvents.push(event);
-    eventsBySource.set(source, sourceEvents);
-  }
-  return { bySource: eventsBySource, withoutSource };
+  return { events };
 }
 
 const CHROMIUM_APPLICATIONS = ["chrome", "chromium", "edge", "vivaldi"];
@@ -146,60 +145,33 @@ function browserTitleMatchesWindow(windowEvent: TimedEvent, browserEvent: TimedE
     && (windowTitle.includes(browserTitle) || browserTitle.includes(windowTitle));
 }
 
-function browserIsActive(windowEvent: TimedEvent | undefined, browserEvent: TimedEvent | undefined): boolean {
-  if (!browserApplicationMatches(windowEvent, browserEvent) || windowEvent === undefined || browserEvent === undefined) {
-    return false;
-  }
-
-  const windowTitle = stringData(windowEvent, "title")?.trim() ?? "";
-  const browserTitle = stringData(browserEvent, "title")?.trim() ?? "";
-  if (windowTitle.length > 0 && browserTitle.length > 0) {
-    return browserTitleMatchesWindow(windowEvent, browserEvent);
-  }
-  return browserSourceKey(browserEvent) !== undefined;
-}
-
 function findBrowserContextAt(
   browserEventIndex: BrowserEventIndex,
   windowEvent: TimedEvent | undefined,
   timestamp: number
 ): TimedEvent | undefined {
-  if (windowEvent === undefined) return undefined;
-
-  let latestEvidence: TimedEvent | undefined;
-  for (const sourceEvents of browserEventIndex.bySource.values()) {
-    const candidate = latestEventAtOrBefore(sourceEvents, timestamp);
-    if (candidate === undefined || !browserApplicationMatches(windowEvent, candidate)) continue;
-    if (latestEvidence === undefined || candidate.startMs > latestEvidence.startMs) {
-      latestEvidence = candidate;
-    }
-  }
-
-  const activeWithoutSource = eventAt(
-    browserEventIndex.withoutSource,
-    timestamp,
-    (event) => browserApplicationMatches(windowEvent, event)
-  );
-  if (
-    activeWithoutSource !== undefined
-    && (latestEvidence === undefined || activeWithoutSource.startMs > latestEvidence.startMs)
-  ) {
-    latestEvidence = activeWithoutSource;
-  }
-
+  const latestEvidence = latestEventAtOrBefore(browserEventIndex.events, timestamp);
   if (latestEvidence === undefined) return undefined;
+  // A web watcher reports its own current tab; foreground-window focus is irrelevant here.
   if (latestEvidence.endMs > timestamp) {
-    return browserIsActive(windowEvent, latestEvidence) ? latestEvidence : undefined;
+    return latestEvidence;
   }
 
   const graceEnd = latestEvidence.endMs + BROWSER_CONTEXT_GRACE_MS;
-  return browserSourceKey(latestEvidence) !== undefined
-    && timestamp >= latestEvidence.endMs
-    && timestamp < graceEnd
+  if (browserSourceKey(latestEvidence) === undefined
+    || timestamp < latestEvidence.endMs
+    || timestamp >= graceEnd) {
+    return undefined;
+  }
+
+  const nextEvidence = earliestEventAfter(browserEventIndex.events, timestamp);
+  // Reconstruct only a bounded, subsequently confirmed heartbeat gap. The existing
+  // foreground/title check remains useful as optional corroboration at the live tail.
+  const gapIsConfirmed = nextEvidence !== undefined && nextEvidence.startMs <= graceEnd;
+  const foregroundCorroborates = windowEvent !== undefined
     && browserApplicationMatches(windowEvent, latestEvidence)
-    && browserTitleMatchesWindow(windowEvent, latestEvidence)
-    ? latestEvidence
-    : undefined;
+    && browserTitleMatchesWindow(windowEvent, latestEvidence);
+  return gapIsConfirmed || foregroundCorroborates ? latestEvidence : undefined;
 }
 
 function contextAt(windowEvent: TimedEvent | undefined, browserEvent: TimedEvent | undefined): ActivityContext {
