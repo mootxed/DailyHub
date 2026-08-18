@@ -1720,11 +1720,14 @@
   overscroll-behavior-inline: contain;
 }
 
-.daily-hub-day-timeline { overflow: hidden; }
+.daily-hub-day-timeline {
+  overflow: hidden;
+  padding-block: calc(var(--size-4-5) + 2px);
+}
 
 .daily-hub-day-timeline-content {
   --dh-timeline-column-gap: 12px;
-  --dh-timeline-label-width: 148px;
+  --dh-timeline-label-width: 176px;
   min-width: calc(var(--dh-timeline-label-width) + var(--dh-timeline-column-gap) + 520px);
 }
 
@@ -1737,8 +1740,8 @@
 
 .daily-hub-day-timeline-axis {
   color: color-mix(in srgb, var(--dh-text) 72%, var(--dh-text-muted));
-  font-size: 10.5px;
-  height: 20px;
+  font-size: 11px;
+  height: 26px;
 }
 
 .daily-hub-day-timeline-axis > div {
@@ -1777,7 +1780,7 @@
 .daily-hub-day-timeline-row {
   align-items: center;
   border-radius: 3px;
-  height: 28px;
+  height: 38px;
   position: relative;
   z-index: 1;
 }
@@ -1821,7 +1824,7 @@
 .daily-hub-day-timeline-lane {
   background: transparent;
   border: 0;
-  height: 28px;
+  height: 38px;
   overflow: visible;
   position: relative;
 }
@@ -1853,9 +1856,9 @@
   border: 0;
   border-radius: 3px;
   box-shadow: none;
-  height: 12px;
-  max-height: 12px;
-  min-height: 12px;
+  height: 15px;
+  max-height: 15px;
+  min-height: 15px;
   min-width: 2px;
   padding: 0;
   position: absolute;
@@ -1972,8 +1975,8 @@ button.daily-hub-day-timeline-segment:focus-visible {
 
 .daily-hub-line-chart {
   display: block;
-  height: clamp(260px, 32cqi, 340px);
-  min-width: 720px;
+  height: clamp(230px, 26cqi, 260px);
+  min-width: 680px;
   overflow: visible;
   width: 100%;
 }
@@ -2100,7 +2103,18 @@ button.daily-hub-day-timeline-segment:focus-visible {
 @container (max-width: 700px) {
   .daily-hub-view { padding: var(--size-4-4); }
 
-  .daily-hub-day-timeline-content { --dh-timeline-label-width: 126px; }
+  .daily-hub-day-timeline-content { --dh-timeline-label-width: 144px; }
+
+  .daily-hub-day-timeline-row,
+  .daily-hub-day-timeline-lane { height: 36px; }
+
+  .daily-hub-view button.daily-hub-day-timeline-segment {
+    height: 14px;
+    max-height: 14px;
+    min-height: 14px;
+  }
+
+  .daily-hub-line-chart { height: clamp(220px, 32cqi, 250px); }
 
   .daily-hub-header-hud {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2157,11 +2171,22 @@ button.daily-hub-day-timeline-segment:focus-visible {
 
   .daily-hub-day-timeline-content {
     --dh-timeline-column-gap: 10px;
-    --dh-timeline-label-width: 104px;
+    --dh-timeline-label-width: 116px;
   }
 
   .daily-hub-day-timeline-row,
   .daily-hub-day-timeline-lane { height: 34px; }
+
+  .daily-hub-view button.daily-hub-day-timeline-segment {
+    height: 13px;
+    max-height: 13px;
+    min-height: 13px;
+  }
+
+  .daily-hub-line-chart {
+    height: 210px;
+    min-width: 620px;
+  }
 
   .daily-hub-day-timeline-label {
     grid-template-columns: 9px minmax(0, 1fr);

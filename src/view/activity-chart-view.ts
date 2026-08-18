@@ -175,12 +175,12 @@ export function renderActivityChartView(container: HTMLElement, options: Activit
       return;
     }
 
-    const width = 1000;
-    const height = 320;
+    const width = 900;
+    const height = 260;
     const left = 64;
-    const right = 22;
-    const top = 20;
-    const bottom = 46;
+    const right = 20;
+    const top = 18;
+    const bottom = 42;
     const plotWidth = width - left - right;
     const plotHeight = height - top - bottom;
     const scale = getNiceTimeScale(getMaximumChartSeconds(series));

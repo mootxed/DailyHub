@@ -24,13 +24,22 @@ describe("dashboard composition", () => {
     expect(positions).toEqual([...positions].sort((left, right) => left - right));
   });
 
-  it("keeps the chart full-width and moves weekly cards to a two-column rail below it", () => {
+  it("keeps the trend chart full-width but visually subordinate to the day timeline", () => {
     expect(styles).not.toContain("grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr)");
     expect(styles).toMatch(
       /@container \(min-width: 760px\)[\s\S]*?\.daily-hub-analytics-rail\s*\{\s*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/
     );
     expect(styles).toMatch(
-      /\.daily-hub-line-chart\s*\{[\s\S]*?height: clamp\(260px, 32cqi, 340px\);[\s\S]*?min-width: 720px;/
+      /\.daily-hub-line-chart\s*\{[\s\S]*?height: clamp\(230px, 26cqi, 260px\);[\s\S]*?min-width: 680px;/
+    );
+    expect(styles).toMatch(
+      /\.daily-hub-day-timeline-content\s*\{[\s\S]*?--dh-timeline-label-width: 176px;/
+    );
+    expect(styles).toMatch(
+      /\.daily-hub-day-timeline-row\s*\{[\s\S]*?height: 38px;/
+    );
+    expect(styles).toMatch(
+      /button\.daily-hub-day-timeline-segment\s*\{[\s\S]*?height: 15px;/
     );
   });
 });
