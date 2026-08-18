@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { getLocalDateRange } from "../src/date";
 import type { ActivityEvent, DailyGoal, DayActivity, GoalRule } from "../src/models";
-import { calculateDailyProgress, getGoalProgress } from "../src/progress";
+import { calculateDailyProgress, getGoalProgress, resolveTrackingAt } from "../src/progress";
 
 const DATE = "2026-08-16";
 
@@ -1239,5 +1239,189 @@ describe("daily progress", () => {
     }), DATE);
 
     expect(result[0]?.activeSeconds).toBe(240);
+  });
+});
+
+describe("tracking pauses", () => {
+  it("splits a matching event at pause and resume boundaries", () => {
+    const paused = {
+      ...goal("typing", 30, appRule("kitty")),
+      trackingPauses: [{ startedAt: timestamp(1_200), endedAt: timestamp(2_400) }]
+    };
+    const day = activity({ windowEvents: [event(0, 3_600, { app: "kitty" })] });
+    expect(calculateDailyProgress([paused], day, DATE)[0]?.activeSeconds).toBe(2_400);
+  });
+
+  it("excludes everything after an open pause", () => {
+    const paused = {
+      ...goal("typing", 30, appRule("kitty")),
+      trackingPauses: [{ startedAt: timestamp(1_200) }]
+    };
+    expect(calculateDailyProgress([paused], activity({
+      windowEvents: [event(0, 3_600, { app: "kitty" })]
+    }), DATE)[0]?.activeSeconds).toBe(1_200);
+  });
+
+  it("resumes counting after a closed pause and preserves the exclusion on recomputation", () => {
+    const paused = {
+      ...goal("typing", 30, appRule("kitty")),
+      trackingPauses: [{ startedAt: timestamp(1_200), endedAt: timestamp(2_400) }]
+    };
+    const day = activity({ windowEvents: [event(0, 3_600, { app: "kitty" })] });
+    const first = calculateDailyProgress([paused], day, DATE)[0]?.activeSeconds;
+    const recomputed = calculateDailyProgress([paused], day, DATE)[0]?.activeSeconds;
+    expect(first).toBe(2_400);
+    expect(recomputed).toBe(first);
+  });
+
+  it("keeps activity before the pause and lets another goal win during it", () => {
+    const first = {
+      ...goal("a-first", 30, appRule("kitty")),
+      trackingPauses: [{ startedAt: timestamp(1_200), endedAt: timestamp(2_400) }]
+    };
+    const second = goal("z-second", 30, appRule("kitty"));
+    const result = calculateDailyProgress([first, second], activity({
+      windowEvents: [event(0, 3_600, { app: "kitty" })]
+    }), DATE);
+    expect(result.find((item) => item.goalId === "a-first")?.activeSeconds).toBe(2_400);
+    expect(result.find((item) => item.goalId === "z-second")?.activeSeconds).toBe(1_200);
+  });
+
+  it("does not carry stale continuation context through a pause", () => {
+    const paused = {
+      ...contextGoal(),
+      trackingPauses: [{ startedAt: timestamp(350), endedAt: timestamp(550) }]
+    };
+    const result = calculateDailyProgress([paused], activity({
+      windowEvents: [
+        event(0, 300, { app: "Firefox", title: "Stepik" }),
+        event(560, 200, { app: "Terminal" })
+      ],
+      browserEvents: [event(
+        0,
+        300,
+        { url: "https://stepik.org/lesson/1", title: "Stepik" },
+        DATE,
+        "aw-watcher-web-firefox_host"
+      )]
+    }), DATE);
+    expect(result[0]?.activeSeconds).toBe(300);
+  });
+});
+
+describe("live tracking resolver", () => {
+  const nowOffset = 300;
+  const nowMs = Date.parse(timestamp(nowOffset));
+  const startMs = Date.parse(timestamp(0));
+
+  function resolve(goals: DailyGoal[], day: DayActivity, atMs = nowMs): string | undefined {
+    return resolveTrackingAt(goals, day, atMs, startMs)?.id;
+  }
+
+  it("resolves direct browser URL activity without a foreground window", () => {
+    const typing = goal("typing", 30, urlRule("keybr.com"));
+    const day = activity({
+      browserEvents: [event(0, nowOffset, { url: "https://keybr.com", title: "Practice" })]
+    });
+    expect(resolve([typing], day)).toBe("typing");
+  });
+
+  it("resolves browser URL activity while another application is foreground", () => {
+    const typing = goal("typing", 30, urlRule("keybr.com"));
+    const day = activity({
+      windowEvents: [event(0, nowOffset, { app: "Obsidian", title: "Daily note" })],
+      browserEvents: [event(0, nowOffset, { url: "https://keybr.com", title: "Practice" })]
+    });
+    expect(resolve([typing], day)).toBe("typing");
+  });
+
+  it("requires foreground evidence for application and window-title rules", () => {
+    const application = goal("application", 30, appRule("Obsidian"));
+    const windowTitle = goal("window", 30, {
+      id: "primary-window",
+      role: "primary",
+      field: "windowTitle",
+      operator: "contains",
+      value: "Daily note",
+      countDuringAfk: false
+    });
+    const matching = activity({ windowEvents: [event(0, nowOffset, { app: "Obsidian" })] });
+    const titleMatching = activity({ windowEvents: [event(0, nowOffset, { app: "Obsidian", title: "Daily note" })] });
+    const nonmatching = activity({ windowEvents: [event(0, nowOffset, { app: "Firefox" })] });
+    expect(resolve([application], matching)).toBe("application");
+    expect(resolve([windowTitle], titleMatching)).toBe("window");
+    expect(resolve([application], nonmatching)).toBeUndefined();
+  });
+
+  it("does not resolve activity before trackingStartedAt", () => {
+    const tracked = {
+      ...goal("typing", 30, appRule("kitty")),
+      trackingStartedAt: timestamp(nowOffset + 1)
+    };
+    expect(resolve([tracked], activity({
+      windowEvents: [event(0, nowOffset, { app: "kitty" })]
+    }))).toBeUndefined();
+  });
+
+  it("honors AFK and countDuringAfk", () => {
+    const normal = goal("a-normal", 30, urlRule("keybr.com"));
+    const passive = goal("z-passive", 30, urlRule("keybr.com", "primary", true));
+    const day = activity({
+      browserEvents: [event(0, nowOffset, { url: "https://keybr.com" })],
+      afkEvents: [event(0, nowOffset, { status: "afk" })]
+    });
+    expect(resolve([normal], day)).toBeUndefined();
+    expect(resolve([normal, passive], day)).toBe("z-passive");
+  });
+
+  it("never resolves a paused matching goal", () => {
+    const paused = {
+      ...goal("typing", 30, appRule("kitty")),
+      trackingPauses: [{ startedAt: timestamp(120) }]
+    };
+    expect(resolve([paused], activity({
+      windowEvents: [event(0, nowOffset, { app: "kitty" })]
+    }))).toBeUndefined();
+  });
+
+  it("uses the same deterministic overlap winner as daily progress", () => {
+    const goals = [goal("z-goal", 30, appRule("kitty")), goal("a-goal", 30, appRule("kitty"))];
+    const day = activity({ windowEvents: [event(0, nowOffset, { app: "kitty" })] });
+    expect(resolve(goals, day)).toBe("a-goal");
+    expect(calculateDailyProgress(goals, day, DATE)
+      .find((item) => item.activeSeconds > 0)?.goalId).toBe("a-goal");
+  });
+
+  it("preserves zero-duration browser evidence semantics", () => {
+    const typing = goal("typing", 30, urlRule("keybr.com"));
+    const day = activity({
+      browserEvents: [
+        event(0, 0, { url: "https://keybr.com", title: "Practice" }, DATE, "aw-watcher-web-chrome_host"),
+        event(90, 210, { url: "https://keybr.com", title: "Practice" }, DATE, "aw-watcher-web-chrome_host")
+      ]
+    });
+    expect(resolve([typing], day)).toBe("typing");
+  });
+
+  it("resolves live continuation and rejects it after expiry", () => {
+    const tracked = contextGoal();
+    const live = activity({
+      windowEvents: [
+        event(0, 60, { app: "Firefox", title: "Stepik" }),
+        event(60, 240, { app: "Terminal" })
+      ],
+      browserEvents: [event(0, 60, { url: "https://stepik.org", title: "Stepik" })]
+    });
+    expect(resolve([tracked], live)).toBe("devops");
+
+    const expiredAt = Date.parse(timestamp(700));
+    const expired = activity({
+      windowEvents: [
+        event(0, 60, { app: "Firefox", title: "Stepik" }),
+        event(60, 640, { app: "Terminal" })
+      ],
+      browserEvents: [event(0, 60, { url: "https://stepik.org", title: "Stepik" })]
+    });
+    expect(resolve([tracked], expired, expiredAt)).toBeUndefined();
   });
 });

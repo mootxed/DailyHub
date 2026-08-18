@@ -43,6 +43,11 @@ export type GoalDayOverride =
   | { kind: "target"; targetMinutes: number }
   | { kind: "skip" };
 
+export interface GoalTrackingPause {
+  startedAt: string;
+  endedAt?: string;
+}
+
 export interface DailyGoal {
   id: string;
   name: string;
@@ -52,6 +57,8 @@ export interface DailyGoal {
   overrides?: Record<string, GoalDayOverride>;
   /** Missing on legacy goals whose original tracking start is unknown. */
   trackingStartedAt?: string;
+  /** Persisted intervals during which matching activity must not be counted. */
+  trackingPauses?: GoalTrackingPause[];
   rules: GoalRule[];
   contextTimeoutMinutes: number;
   enabled: boolean;
@@ -113,7 +120,7 @@ export interface ActivityWatchSnapshot {
   activity: DayActivity;
 }
 
-export const DATA_SCHEMA_VERSION = 6;
+export const DATA_SCHEMA_VERSION = 7;
 export const DEFAULT_CONTEXT_TIMEOUT_MINUTES = 10;
 
 export const DEFAULT_SETTINGS: DailyHubSettings = {
@@ -173,6 +180,7 @@ export function createEmptyGoal(): DailyGoal {
     targetMinutes: 30,
     schedule: createDefaultSchedule(30),
     overrides: {},
+    trackingPauses: [],
     rules: [createEmptyRule()],
     contextTimeoutMinutes: DEFAULT_CONTEXT_TIMEOUT_MINUTES,
     enabled: true

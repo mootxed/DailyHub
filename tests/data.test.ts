@@ -30,6 +30,7 @@ describe("plugin data validation", () => {
       targetMinutes: 30,
       schedule: createDefaultSchedule(30),
       overrides: {},
+      trackingPauses: [],
       enabled: true,
       contextTimeoutMinutes: 10,
       rules: [{
@@ -77,7 +78,7 @@ describe("plugin data validation", () => {
     };
     const legacy = normalizeData({ schemaVersion: 5, settings: {}, goals: [baseGoal] });
     expect(requiresDataMigration({ schemaVersion: 5, settings: {}, goals: [baseGoal] })).toBe(true);
-    expect(legacy.schemaVersion).toBe(6);
+    expect(legacy.schemaVersion).toBe(7);
     expect(legacy.goals[0]).not.toHaveProperty("trackingStartedAt");
 
     const valid = normalizeData({
@@ -120,6 +121,7 @@ describe("plugin data validation", () => {
       targetMinutes: 25,
       schedule: createDefaultSchedule(25),
       overrides: {},
+      trackingPauses: [],
       contextTimeoutMinutes: 15,
       enabled: false,
       rules: [
@@ -239,5 +241,36 @@ describe("plugin data validation", () => {
       "2026-08-17": { kind: "target", targetMinutes: 75 },
       "2026-08-18": { kind: "skip" }
     });
+  });
+
+  it("normalizes pause intervals and permits only one open pause", () => {
+    const baseGoal = {
+      id: "paused",
+      name: "Paused",
+      targetMinutes: 30,
+      enabled: true,
+      rules: [{ id: "primary", role: "primary", field: "application", operator: "equals", value: "kitty" }]
+    };
+    const data = normalizeData({
+      schemaVersion: 6,
+      settings: {},
+      goals: [{
+        ...baseGoal,
+        trackingPauses: [
+          { startedAt: "invalid" },
+          { startedAt: "2026-08-18T10:00:00.000Z", endedAt: "2026-08-18T09:00:00.000Z" },
+          { startedAt: "2026-08-18T10:00:00.000Z", endedAt: "2026-08-18T10:20:00.000Z" },
+          { startedAt: "2026-08-18T10:15:00.000Z", endedAt: "2026-08-18T10:40:00.000Z" },
+          { startedAt: "2026-08-18T11:00:00.000Z" },
+          { startedAt: "2026-08-18T12:00:00.000Z" }
+        ]
+      }]
+    });
+
+    expect(data.goals[0]?.trackingPauses).toEqual([
+      { startedAt: "2026-08-18T10:00:00.000Z", endedAt: "2026-08-18T10:40:00.000Z" },
+      { startedAt: "2026-08-18T11:00:00.000Z" }
+    ]);
+    expect(requiresDataMigration({ schemaVersion: 6, settings: {}, goals: [baseGoal] })).toBe(true);
   });
 });

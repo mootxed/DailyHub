@@ -2,8 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   getTrackingStartMs,
   hasGoalTrackingStartedByDate,
+  isGoalPaused,
+  isGoalPausedAt,
   isGoalTrackingActiveAt,
   isValidTrackingStartedAt,
+  pauseGoal,
+  resumeGoal,
   startGoalTracking
 } from "../src/goal-lifecycle";
 import type { DailyGoal } from "../src/models";
@@ -58,5 +62,62 @@ describe("goal tracking lifecycle", () => {
     const existing = goal("2026-08-01T00:00:00.000Z");
     expect(startGoalTracking(existing, startedAt)).toBe(existing);
     expect(startGoalTracking(goal("banana"), startedAt).trackingStartedAt).toBe(startedAt.toISOString());
+  });
+
+  it("pauses and resumes at exact interval boundaries", () => {
+    const tracked = goal("2026-08-18T09:00:00.000Z");
+    expect(pauseGoal(tracked, "2026-08-18T10:00:00.000Z")).toBe(true);
+    expect(isGoalPausedAt(tracked, Date.parse("2026-08-18T09:59:59.999Z"))).toBe(false);
+    expect(isGoalPausedAt(tracked, Date.parse("2026-08-18T10:00:00.000Z"))).toBe(true);
+    expect(isGoalTrackingActiveAt(tracked, Date.parse("2026-08-18T10:10:00.000Z"))).toBe(false);
+
+    expect(resumeGoal(tracked, "2026-08-18T10:20:00.000Z")).toBe(true);
+    expect(isGoalPausedAt(tracked, Date.parse("2026-08-18T10:19:59.999Z"))).toBe(true);
+    expect(isGoalPausedAt(tracked, Date.parse("2026-08-18T10:20:00.000Z"))).toBe(false);
+    expect(isGoalPaused(tracked, new Date("2026-08-18T10:20:00.000Z"))).toBe(false);
+  });
+
+  it("makes repeated pause and resume operations safe no-ops", () => {
+    const tracked = goal();
+    expect(pauseGoal(tracked, "2026-08-18T10:00:00.000Z")).toBe(true);
+    expect(pauseGoal(tracked, "2026-08-18T10:05:00.000Z")).toBe(false);
+    expect(tracked.trackingPauses).toHaveLength(1);
+    expect(resumeGoal(tracked, "2026-08-18T10:20:00.000Z")).toBe(true);
+    expect(resumeGoal(tracked, "2026-08-18T10:25:00.000Z")).toBe(false);
+    expect(tracked.trackingPauses).toEqual([{
+      startedAt: "2026-08-18T10:00:00.000Z",
+      endedAt: "2026-08-18T10:20:00.000Z"
+    }]);
+  });
+
+  it("safely rejects invalid timestamps and malformed pause state", () => {
+    const tracked = goal();
+    expect(isGoalPausedAt(tracked, Number.NaN)).toBe(false);
+    expect(isGoalPausedAt({ trackingPauses: [{ startedAt: "invalid" }] }, 0)).toBe(false);
+    expect(isGoalPausedAt({
+      trackingPauses: [{ startedAt: "2026-08-18T10:00:00.000Z", endedAt: "invalid" }]
+    }, Date.parse("2026-08-18T10:10:00.000Z"))).toBe(false);
+    expect(pauseGoal(tracked, "invalid")).toBe(false);
+    expect(pauseGoal(tracked, new Date(Number.NaN))).toBe(false);
+    expect(resumeGoal(tracked, "invalid")).toBe(false);
+    expect(resumeGoal(tracked, Date.parse("2026-08-18T10:00:00.000Z"))).toBe(false);
+
+    tracked.trackingPauses = [{ startedAt: "invalid" }];
+    expect(pauseGoal(tracked, Date.parse("2026-08-18T10:00:00.000Z"))).toBe(false);
+    expect(resumeGoal(tracked, "2026-08-18T10:20:00.000Z")).toBe(false);
+
+    tracked.trackingPauses = [{ startedAt: "2026-08-18T10:20:00.000Z" }];
+    expect(resumeGoal(tracked, "2026-08-18T10:00:00.000Z")).toBe(false);
+  });
+
+  it("closes only the open interval when prior pauses exist", () => {
+    const tracked = goal();
+    tracked.trackingPauses = [
+      { startedAt: "2026-08-18T09:00:00.000Z", endedAt: "2026-08-18T09:20:00.000Z" },
+      { startedAt: "2026-08-18T10:00:00.000Z" }
+    ];
+    expect(resumeGoal(tracked, new Date("2026-08-18T10:20:00.000Z"))).toBe(true);
+    expect(tracked.trackingPauses[0]?.endedAt).toBe("2026-08-18T09:20:00.000Z");
+    expect(tracked.trackingPauses[1]?.endedAt).toBe("2026-08-18T10:20:00.000Z");
   });
 });

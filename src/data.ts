@@ -10,6 +10,7 @@ import {
   type GoalRule,
   type GoalRuleRole,
   type GoalSchedule,
+  type GoalTrackingPause,
   type MatchOperator,
   type RuleField
 } from "./models";
@@ -83,6 +84,38 @@ function parseOverrides(value: unknown): Record<string, GoalDayOverride> {
   }));
 }
 
+function parseTrackingPauses(value: unknown): GoalTrackingPause[] {
+  if (!Array.isArray(value)) return [];
+  const pauses = value.flatMap((candidate): GoalTrackingPause[] => {
+    if (!isRecord(candidate) || !isValidTrackingStartedAt(candidate.startedAt)) return [];
+    if (candidate.endedAt !== undefined && !isValidTrackingStartedAt(candidate.endedAt)) return [];
+    const startMs = Date.parse(candidate.startedAt);
+    const endMs = candidate.endedAt === undefined ? undefined : Date.parse(candidate.endedAt);
+    if (endMs !== undefined && endMs < startMs) return [];
+    return [{
+      startedAt: new Date(startMs).toISOString(),
+      ...(endMs === undefined ? {} : { endedAt: new Date(endMs).toISOString() })
+    }];
+  }).sort((left, right) => Date.parse(left.startedAt) - Date.parse(right.startedAt));
+
+  const normalized: GoalTrackingPause[] = [];
+  for (const pause of pauses) {
+    const previous = normalized.at(-1);
+    if (previous === undefined) {
+      normalized.push(pause);
+      continue;
+    }
+    if (previous.endedAt === undefined) continue;
+    if (Date.parse(pause.startedAt) <= Date.parse(previous.endedAt)) {
+      if (pause.endedAt === undefined) delete previous.endedAt;
+      else if (Date.parse(pause.endedAt) > Date.parse(previous.endedAt)) previous.endedAt = pause.endedAt;
+      continue;
+    }
+    normalized.push(pause);
+  }
+  return normalized;
+}
+
 function parseGoal(value: unknown): DailyGoal | undefined {
   if (!isRecord(value)
     || !nonEmptyString(value.id)
@@ -107,6 +140,7 @@ function parseGoal(value: unknown): DailyGoal | undefined {
     targetMinutes: value.targetMinutes,
     schedule: parseSchedule(value.schedule, value.targetMinutes),
     overrides: parseOverrides(value.overrides),
+    trackingPauses: parseTrackingPauses(value.trackingPauses),
     ...(isValidTrackingStartedAt(value.trackingStartedAt)
       ? { trackingStartedAt: value.trackingStartedAt }
       : {}),

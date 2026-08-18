@@ -26,6 +26,7 @@ function copyGoal(goal: DailyGoal): DailyGoal {
     ...goal,
     schedule: Object.fromEntries(WEEKDAYS.map((weekday) => [weekday, { ...schedule[weekday] }])) as GoalSchedule,
     overrides: structuredClone(goal.overrides ?? {}),
+    trackingPauses: structuredClone(goal.trackingPauses ?? []),
     rules: goal.rules.map((rule) => ({ ...rule }))
   };
 }

@@ -83,11 +83,16 @@ export class ActivityWatchClient {
   }
 
   async getDaySnapshot(date: Date | string): Promise<ActivityWatchSnapshot> {
+    const range = getLocalDateRange(date);
+    return this.getRangeSnapshot(range.start, range.end);
+  }
+
+  async getRangeSnapshot(start: Date, end: Date): Promise<ActivityWatchSnapshot> {
     try {
       const { hostname, buckets } = await this.getSources();
       const selected = selectActivityWatchBuckets(buckets, hostname);
       const availability = getWatcherAvailability(selected);
-      const activity = await this.loadSelectedActivity(selected, date);
+      const activity = await this.loadSelectedActivity(selected, start, end);
       return {
         status: {
           kind: "connected",
@@ -130,26 +135,27 @@ export class ActivityWatchClient {
     hostname: string | undefined,
     date: Date | string
   ): Promise<DayActivity> {
-    return this.loadSelectedActivity(selectActivityWatchBuckets(buckets, hostname), date);
+    const range = getLocalDateRange(date);
+    return this.loadSelectedActivity(selectActivityWatchBuckets(buckets, hostname), range.start, range.end);
   }
 
   private async loadSelectedActivity(
     buckets: SelectedActivityWatchBuckets,
-    date: Date | string
+    start: Date,
+    end: Date
   ): Promise<DayActivity> {
     const [windowEvents, browserEvents, afkEvents] = await Promise.all([
-      this.getEvents(buckets.window, date),
-      this.getEvents(buckets.browser, date),
-      this.getEvents(buckets.afk, date)
+      this.getEvents(buckets.window, start, end),
+      this.getEvents(buckets.browser, start, end),
+      this.getEvents(buckets.afk, start, end)
     ]);
     return { windowEvents, browserEvents, afkEvents };
   }
 
-  private async getEvents(buckets: ActivityWatchBucket[], date: Date | string): Promise<ActivityEvent[]> {
-    const range = getLocalDateRange(date);
+  private async getEvents(buckets: ActivityWatchBucket[], start: Date, end: Date): Promise<ActivityEvent[]> {
     const query = new URLSearchParams({
-      start: range.start.toISOString(),
-      end: range.end.toISOString(),
+      start: start.toISOString(),
+      end: end.toISOString(),
       limit: "-1"
     });
     const eventLists = await Promise.all(

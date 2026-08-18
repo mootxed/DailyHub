@@ -18,7 +18,13 @@ interface GoalContext {
   lastPrimaryTimestamp: number;
 }
 
-const BROWSER_CONTEXT_GRACE_MS = 120_000;
+export interface TrackingSegment {
+  goalId: string;
+  startMs: number;
+  endMs: number;
+}
+
+export const BROWSER_CONTEXT_GRACE_MS = 120_000;
 
 function parseEvents(
   events: ActivityEvent[],
@@ -195,6 +201,36 @@ export function calculateDailyProgress(
   const range = getLocalDateRange(date);
   const rangeStart = range.start.getTime();
   const rangeEnd = range.end.getTime();
+  const segments = resolveTrackingTimeline(goals, activity, rangeStart, rangeEnd);
+  const secondsByGoal = new Map(goals.map((goal) => [goal.id, 0]));
+  for (const segment of segments) {
+    secondsByGoal.set(
+      segment.goalId,
+      (secondsByGoal.get(segment.goalId) ?? 0) + (segment.endMs - segment.startMs) / 1000
+    );
+  }
+
+  return goals.map((goal) => {
+    const activeSeconds = secondsByGoal.get(goal.id) ?? 0;
+    const actualMinutes = activeSeconds / 60;
+    return {
+      goalId: goal.id,
+      activeSeconds,
+      actualMinutes,
+      targetMinutes: goal.targetMinutes,
+      completed: actualMinutes >= goal.targetMinutes,
+      progressRatio: goal.targetMinutes > 0 ? Math.min(actualMinutes / goal.targetMinutes, 1) : 0
+    };
+  });
+}
+
+export function resolveTrackingTimeline(
+  goals: DailyGoal[],
+  activity: DayActivity,
+  rangeStart: number,
+  rangeEnd: number
+): TrackingSegment[] {
+  if (!Number.isFinite(rangeStart) || !Number.isFinite(rangeEnd) || rangeEnd <= rangeStart) return [];
   const windowEvents = parseEvents(activity.windowEvents, rangeStart, rangeEnd);
   const browserEvents = parseEvents(activity.browserEvents, rangeStart, rangeEnd, true);
   const browserEventIndex = indexBrowserEvents(browserEvents);
@@ -214,17 +250,37 @@ export function calculateDailyProgress(
     if (trackingStartMs !== undefined && trackingStartMs > rangeStart && trackingStartMs < rangeEnd) {
       boundaries.add(trackingStartMs);
     }
+    for (const pause of goal.trackingPauses ?? []) {
+      const pauseStartMs = Date.parse(pause.startedAt);
+      const pauseEndMs = pause.endedAt === undefined ? undefined : Date.parse(pause.endedAt);
+      if (Number.isFinite(pauseStartMs) && pauseStartMs > rangeStart && pauseStartMs < rangeEnd) {
+        boundaries.add(pauseStartMs);
+      }
+      if (pauseEndMs !== undefined
+        && Number.isFinite(pauseEndMs)
+        && pauseEndMs > rangeStart
+        && pauseEndMs < rangeEnd) {
+        boundaries.add(pauseEndMs);
+      }
+    }
   }
 
-  const secondsByGoal = new Map(goals.map((goal) => [goal.id, 0]));
   const goalsById = new Map(goals.map((goal) => [goal.id, goal]));
   const timeline = [...boundaries].sort((left, right) => left - right);
+  const segments: TrackingSegment[] = [];
   let currentContext: GoalContext | undefined;
 
   for (let index = 0; index < timeline.length - 1; index += 1) {
     const start = timeline[index];
     const end = timeline[index + 1];
     if (start === undefined || end === undefined || end <= start) continue;
+
+    if (currentContext !== undefined) {
+      const contextGoal = goalsById.get(currentContext.goalId);
+      if (contextGoal === undefined || !isGoalTrackingActiveAt(contextGoal, start)) {
+        currentContext = undefined;
+      }
+    }
 
     const windowEvent = eventAt(windowEvents, start);
     const browserEvent = findBrowserContextAt(browserEventIndex, windowEvent, start);
@@ -235,7 +291,7 @@ export function calculateDailyProgress(
     const eligibleGoals = goals.filter((goal) => isGoalTrackingActiveAt(goal, start));
     const primaryGoal = pickMatchingPrimaryGoal(eligibleGoals, activityContext, duringAfk);
     if (primaryGoal !== undefined) {
-      secondsByGoal.set(primaryGoal.id, (secondsByGoal.get(primaryGoal.id) ?? 0) + (end - start) / 1000);
+      segments.push({ goalId: primaryGoal.id, startMs: start, endMs: end });
       currentContext = { goalId: primaryGoal.id, lastPrimaryTimestamp: end };
       continue;
     }
@@ -250,27 +306,23 @@ export function calculateDailyProgress(
         currentContext = undefined;
       } else if (goalMatches(contextGoal, activityContext, "continuation")) {
         const countedEnd = Math.min(end, leaseEnd);
-        secondsByGoal.set(
-          contextGoal.id,
-          (secondsByGoal.get(contextGoal.id) ?? 0) + (countedEnd - start) / 1000
-        );
+        segments.push({ goalId: contextGoal.id, startMs: start, endMs: countedEnd });
         if (end >= leaseEnd) currentContext = undefined;
       }
     }
   }
+  return segments;
+}
 
-  return goals.map((goal) => {
-    const activeSeconds = secondsByGoal.get(goal.id) ?? 0;
-    const actualMinutes = activeSeconds / 60;
-    return {
-      goalId: goal.id,
-      activeSeconds,
-      actualMinutes,
-      targetMinutes: goal.targetMinutes,
-      completed: actualMinutes >= goal.targetMinutes,
-      progressRatio: goal.targetMinutes > 0 ? Math.min(actualMinutes / goal.targetMinutes, 1) : 0
-    };
-  });
+export function resolveTrackingAt(
+  goals: DailyGoal[],
+  activity: DayActivity,
+  timestampMs: number,
+  lookbackStartMs: number
+): DailyGoal | undefined {
+  const segment = resolveTrackingTimeline(goals, activity, lookbackStartMs, timestampMs).at(-1);
+  if (segment?.endMs !== timestampMs) return undefined;
+  return goals.find((goal) => goal.id === segment.goalId);
 }
 
 export function getGoalProgress(

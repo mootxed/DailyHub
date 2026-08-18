@@ -28,11 +28,11 @@ import {
 import { DayOverrideModal } from "./day-override";
 import { GoalEditorModal } from "./goal-editor";
 import { GoalDetailsModal, type GoalDetailsStats } from "./goal-details";
-import { hasGoalTrackingStartedByDate } from "./goal-lifecycle";
+import { hasGoalTrackingStartedByDate, isGoalPaused } from "./goal-lifecycle";
 import { LongTermActivityState } from "./long-term-state";
 import type DailyHubPlugin from "./main";
 import type { ActivityWatchSnapshot, ActivityWatchStatus, DailyGoal, GoalProgress } from "./models";
-import { calculateDailyProgress } from "./progress";
+import { BROWSER_CONTEXT_GRACE_MS, calculateDailyProgress, resolveTrackingAt } from "./progress";
 import { calculateRangeProgress, type DayActivityInput } from "./range-progress";
 import { applyScheduleToProgress, type PlannedGoalProgress } from "./schedule";
 import { calculateGoalWeekStats, calculateWeekProgress, type WeekDayActivity } from "./weekly-progress";
@@ -42,6 +42,8 @@ const ACTIVITYWATCH_DOWNLOAD_URL = "https://activitywatch.net/downloads/";
 const BROWSER_WATCHER_URL = "https://docs.activitywatch.net/en/latest/watchers.html#web-browser";
 const LONG_TERM_DAYS = 30;
 const RANGE_LOAD_CONCURRENCY = 6;
+const LIVE_POLL_INTERVAL_MS = 5_000;
+const LIVE_MIN_LOOKBACK_MS = 5 * 60_000;
 const OFFLINE_STATUS: ActivityWatchStatus = {
   kind: "offline",
   windowWatcherAvailable: false,
@@ -57,6 +59,15 @@ interface WeekDayData {
   progress: GoalProgress[] | undefined;
 }
 
+interface GoalRuntimeElements {
+  card: HTMLElement;
+  status: HTMLElement;
+  progressShell?: HTMLElement;
+  pauseButton?: HTMLButtonElement;
+  pauseIcon?: HTMLElement;
+  pauseLabel?: HTMLElement;
+}
+
 export class DailyHubView extends ItemView {
   private readonly plugin: DailyHubPlugin;
   private refreshSequence = 0;
@@ -65,6 +76,12 @@ export class DailyHubView extends ItemView {
   private refreshButton: HTMLButtonElement | undefined;
   private readonly longTermActivity = new LongTermActivityState();
   private longTermSection: HTMLElement | undefined;
+  private readonly goalRuntimeElements = new Map<string, GoalRuntimeElements>();
+  private livePollTimer: number | undefined;
+  private livePollSequence = 0;
+  private livePollInFlight = false;
+  private viewOpen = false;
+  private selectedActivityAvailable = false;
 
   constructor(leaf: WorkspaceLeaf, plugin: DailyHubPlugin) {
     super(leaf);
@@ -84,7 +101,15 @@ export class DailyHubView extends ItemView {
   }
 
   override async onOpen(): Promise<void> {
+    this.viewOpen = true;
     await this.refresh();
+  }
+
+  override onClose(): Promise<void> {
+    this.viewOpen = false;
+    this.stopLivePolling();
+    this.goalRuntimeElements.clear();
+    return Promise.resolve();
   }
 
   async refresh(force = false): Promise<void> {
@@ -183,6 +208,7 @@ export class DailyHubView extends ItemView {
     const container = this.contentEl;
     container.empty();
     container.addClass("daily-hub-view");
+    this.goalRuntimeElements.clear();
     const loading = container.createDiv({ cls: "daily-hub-loading", attr: { role: "status" } });
     const header = loading.createDiv({ cls: "daily-hub-loading-header" });
     header.createDiv({ cls: "daily-hub-loading-line is-title" });
@@ -216,6 +242,8 @@ export class DailyHubView extends ItemView {
     const container = this.contentEl;
     container.empty();
     container.addClass("daily-hub-view");
+    this.goalRuntimeElements.clear();
+    this.selectedActivityAvailable = selectedAvailable;
 
     const daySummary = summarizeDay(this.plugin.data.goals, progress, this.selectedDateKey);
     const plannedProgress = applyScheduleToProgress(this.plugin.data.goals, progress, this.selectedDateKey);
@@ -355,6 +383,8 @@ export class DailyHubView extends ItemView {
     this.renderWeek(container, week, weeklyAnalytics);
     this.longTermSection = container.createDiv({ cls: "daily-hub-long-term" });
     this.renderLongTermContent(today);
+    this.updateGoalRuntimeStates();
+    this.syncLivePolling(status.kind === "connected" && selectedAvailable);
   }
 
   private renderHudMetric(container: HTMLElement, value: string, label: string): void {
@@ -846,6 +876,7 @@ export class DailyHubView extends ItemView {
     badge.createSpan({ text: stateLabel });
 
     const content = card.createDiv({ cls: "daily-hub-goal-content" });
+    let progressShell: HTMLElement | undefined;
 
     if (!progress.trackingStarted) {
       content.createEl("div", { text: "Tracking begins from this goal’s creation date.", cls: "daily-hub-muted" });
@@ -867,16 +898,19 @@ export class DailyHubView extends ItemView {
       summary.createEl("strong", { text: `${minutes} min`, cls: "daily-hub-goal-actual" });
       summary.createEl("span", { text: `goal ${progress.targetMinutes} min`, cls: "daily-hub-muted" });
 
-      const bar = content.createEl("progress", {
+      const progressRatio = progress.progressRatio ?? 0;
+      progressShell = content.createDiv({ cls: "daily-hub-progress-shell" });
+      progressShell.style.setProperty("--dh-progress-ratio", String(progressRatio));
+      const bar = progressShell.createEl("progress", {
         cls: "daily-hub-progress",
         attr: {
           max: "1",
-          value: String(progress.progressRatio ?? 0),
+          value: String(progressRatio),
           "aria-label": `${goal.name}: ${minutes} of ${progress.targetMinutes} minutes`
         }
       });
       bar.max = 1;
-      bar.value = progress.progressRatio ?? 0;
+      bar.value = progressRatio;
 
       if (progress.completed) {
         const extra = Math.floor(progress.actualMinutes - progress.targetMinutes);
@@ -893,6 +927,11 @@ export class DailyHubView extends ItemView {
       }
     }
 
+    const runtimeStatus = content.createDiv({
+      cls: "daily-hub-goal-runtime-state",
+      attr: { role: "status", "aria-live": "polite" }
+    });
+
     const actions = card.createDiv({ cls: "daily-hub-goal-actions" });
     const details = actions.createEl("button", { text: "Details", cls: "daily-hub-details-button" });
     details.addEventListener("click", () => {
@@ -908,12 +947,16 @@ export class DailyHubView extends ItemView {
         (force) => this.loadGoalDetailsStats(goal.id, selectedDateKey, force)
       ).open();
     });
-    const edit = actions.createEl("button", {
-      cls: "daily-hub-icon-button",
-      attr: { "aria-label": `Edit ${goal.name}`, title: `Edit ${goal.name}` }
-    });
-    setIcon(edit, "pencil");
-    edit.addEventListener("click", () => new GoalEditorModal(this.plugin, goal).open());
+
+    let pauseButton: HTMLButtonElement | undefined;
+    let pauseIcon: HTMLElement | undefined;
+    let pauseLabel: HTMLElement | undefined;
+    if (isToday(this.selectedDateKey) && progress.trackingStarted && goal.enabled) {
+      pauseButton = actions.createEl("button", { cls: "daily-hub-details-button daily-hub-pause-button" });
+      pauseIcon = pauseButton.createSpan({ attr: { "aria-hidden": "true" } });
+      pauseLabel = pauseButton.createSpan();
+      pauseButton.addEventListener("click", () => { void this.toggleGoalPause(goal.id); });
+    }
 
     const adjust = actions.createEl("button", {
       text: "Adjust this day",
@@ -922,6 +965,155 @@ export class DailyHubView extends ItemView {
     adjust.addEventListener("click", () => {
       new DayOverrideModal(this.plugin, goal, this.selectedDateKey).open();
     });
+
+    const edit = actions.createEl("button", {
+      cls: "daily-hub-icon-button",
+      attr: { "aria-label": `Edit ${goal.name}`, title: `Edit ${goal.name}` }
+    });
+    setIcon(edit, "pencil");
+    edit.addEventListener("click", () => new GoalEditorModal(this.plugin, goal).open());
+
+    this.goalRuntimeElements.set(goal.id, {
+      card,
+      status: runtimeStatus,
+      progressShell,
+      pauseButton,
+      pauseIcon,
+      pauseLabel
+    });
+  }
+
+  private syncLivePolling(activityAvailable: boolean): void {
+    const shouldPoll = this.viewOpen && activityAvailable && isToday(this.selectedDateKey);
+    if (!shouldPoll) {
+      this.stopLivePolling();
+      this.updateGoalRuntimeStates();
+      return;
+    }
+    this.livePollTimer ??= window.setInterval(() => { void this.refreshLiveState(); }, LIVE_POLL_INTERVAL_MS);
+    void this.refreshLiveState();
+  }
+
+  private stopLivePolling(): void {
+    this.livePollSequence += 1;
+    if (this.livePollTimer !== undefined) {
+      window.clearInterval(this.livePollTimer);
+      this.livePollTimer = undefined;
+    }
+  }
+
+  private async refreshLiveState(): Promise<void> {
+    if (this.livePollInFlight || !this.viewOpen || !isToday(this.selectedDateKey)) return;
+    this.livePollInFlight = true;
+    const sequence = ++this.livePollSequence;
+    const now = new Date();
+    const maximumContextMs = this.plugin.data.goals.reduce(
+      (maximum, goal) => Math.max(maximum, goal.contextTimeoutMinutes * 60_000),
+      0
+    );
+    const lookbackMs = Math.max(LIVE_MIN_LOOKBACK_MS, maximumContextMs + BROWSER_CONTEXT_GRACE_MS);
+    const start = new Date(now.getTime() - lookbackMs);
+
+    try {
+      const snapshot = await this.plugin.getRecentActivitySnapshot(start, now);
+      if (sequence !== this.livePollSequence || !isToday(this.selectedDateKey)) return;
+      if (snapshot.status.kind !== "connected") {
+        this.selectedActivityAvailable = false;
+        this.updateGoalRuntimeStates();
+        this.stopLivePolling();
+        return;
+      }
+      const liveGoal = resolveTrackingAt(
+        this.plugin.data.goals,
+        snapshot.activity,
+        now.getTime(),
+        start.getTime()
+      );
+      this.updateGoalRuntimeStates(liveGoal?.id);
+    } finally {
+      this.livePollInFlight = false;
+    }
+  }
+
+  private updateGoalRuntimeStates(liveGoalId?: string): void {
+    const currentDay = isToday(this.selectedDateKey);
+    for (const [goalId, elements] of this.goalRuntimeElements) {
+      const goal = this.plugin.data.goals.find((candidate) => candidate.id === goalId);
+      if (goal === undefined) continue;
+      const paused = currentDay && isGoalPaused(goal);
+      const live = currentDay
+        && this.selectedActivityAvailable
+        && !paused
+        && liveGoalId === goalId;
+      const wasPaused = elements.card.hasClass("is-paused");
+      const wasLive = elements.card.hasClass("is-live");
+      elements.card.toggleClass("is-paused", paused);
+      elements.card.toggleClass("is-live", live);
+
+      if (wasPaused !== paused || wasLive !== live) {
+        elements.status.empty();
+        if (paused) {
+          elements.status.addClass("is-paused");
+          elements.status.removeClass("is-live");
+          const icon = elements.status.createSpan({ attr: { "aria-hidden": "true" } });
+          setIcon(icon, "pause");
+          elements.status.createSpan({ text: "Paused" });
+        } else if (live) {
+          elements.status.addClass("is-live");
+          elements.status.removeClass("is-paused");
+          elements.status.createSpan({ cls: "daily-hub-live-dot", attr: { "aria-hidden": "true" } });
+          elements.status.createSpan({ text: "Tracking now" });
+        } else {
+          elements.status.removeClass("is-live", "is-paused");
+        }
+      }
+
+      const emitter = elements.progressShell?.querySelector(".daily-hub-progress-emitter");
+      if (!live) emitter?.remove();
+      elements.progressShell?.toggleClass("is-live", live);
+      if (live && emitter === null && elements.progressShell !== undefined) {
+        const newEmitter = elements.progressShell.createSpan({
+          cls: "daily-hub-progress-emitter",
+          attr: { "aria-hidden": "true" }
+        });
+        for (let index = 0; index < 6; index += 1) {
+          newEmitter.createSpan({ cls: `daily-hub-progress-particle is-${index + 1}` });
+        }
+      }
+
+      if (elements.pauseButton !== undefined
+        && elements.pauseIcon !== undefined
+        && elements.pauseLabel !== undefined) {
+        const pauseText = paused ? "Resume" : "Pause";
+        if (elements.pauseLabel.textContent !== pauseText) {
+          setIcon(elements.pauseIcon, paused ? "play" : "pause");
+          elements.pauseLabel.setText(pauseText);
+        }
+        elements.pauseButton.toggleClass("is-resume", paused);
+        elements.pauseButton.setAttribute("aria-label", `${pauseText} ${goal.name}`);
+      }
+    }
+  }
+
+  private async toggleGoalPause(goalId: string): Promise<void> {
+    const goal = this.plugin.data.goals.find((candidate) => candidate.id === goalId);
+    const elements = this.goalRuntimeElements.get(goalId);
+    if (goal === undefined || elements?.pauseButton === undefined) return;
+    elements.pauseButton.disabled = true;
+    const operation = isGoalPaused(goal)
+      ? this.plugin.resumeGoalTracking(goalId)
+      : this.plugin.pauseGoalTracking(goalId);
+    this.updateGoalRuntimeStates();
+    try {
+      await operation;
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      console.warn(`[Daily Hub] Could not update goal tracking pause: ${detail}`);
+      this.updateGoalRuntimeStates();
+    } finally {
+      const currentButton = this.goalRuntimeElements.get(goalId)?.pauseButton;
+      if (currentButton !== undefined) currentButton.disabled = false;
+    }
   }
 
   private async loadGoalWeekStats(

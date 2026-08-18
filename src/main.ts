@@ -4,7 +4,7 @@ import { ActivityWatchClient } from "./activity-watch";
 import { normalizeData, requiresDataMigration } from "./data";
 import { toLocalDateKey } from "./date";
 import { GoalEditorModal } from "./goal-editor";
-import { startGoalTracking } from "./goal-lifecycle";
+import { pauseGoal, resumeGoal, startGoalTracking } from "./goal-lifecycle";
 import {
   DEFAULT_DATA,
   deleteGoalData,
@@ -95,6 +95,14 @@ export default class DailyHubPlugin extends Plugin {
     await this.refreshViews();
   }
 
+  async pauseGoalTracking(goalId: string): Promise<boolean> {
+    return this.setGoalTrackingPaused(goalId, true);
+  }
+
+  async resumeGoalTracking(goalId: string): Promise<boolean> {
+    return this.setGoalTrackingPaused(goalId, false);
+  }
+
   async savePluginData(): Promise<void> {
     await this.saveData(this.data);
   }
@@ -109,6 +117,10 @@ export default class DailyHubPlugin extends Plugin {
   getActivitySnapshot(date: Date | string): Promise<ActivityWatchSnapshot> {
     const dateKey = typeof date === "string" ? date : toLocalDateKey(date);
     return this.activityCache.get(this.data.settings.activityWatchUrl, dateKey);
+  }
+
+  getRecentActivitySnapshot(start: Date, end: Date): Promise<ActivityWatchSnapshot> {
+    return this.getActivityClient(this.data.settings.activityWatchUrl).getRangeSnapshot(start, end);
   }
 
   invalidateActivitySnapshots(dateKeys: Iterable<string>): void {
@@ -128,6 +140,17 @@ export default class DailyHubPlugin extends Plugin {
     const seconds = Math.max(10, this.data.settings.refreshIntervalSeconds);
     this.refreshTimer = window.setInterval(() => { void this.refreshViews(); }, seconds * 1000);
     this.registerInterval(this.refreshTimer);
+  }
+
+  private async setGoalTrackingPaused(goalId: string, paused: boolean): Promise<boolean> {
+    const goal = this.data.goals.find((candidate) => candidate.id === goalId);
+    if (goal === undefined) return false;
+    const changed = paused ? pauseGoal(goal) : resumeGoal(goal);
+    if (!changed) return false;
+    this.invalidateActivitySnapshots([toLocalDateKey(new Date())]);
+    await this.savePluginData();
+    await this.refreshViews();
+    return true;
   }
 
   async notifyNewCompletions(dateKey: string, progress: GoalProgress[]): Promise<void> {
