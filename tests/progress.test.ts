@@ -179,6 +179,57 @@ describe("daily progress", () => {
     expect(result[0]?.activeSeconds).toBeCloseTo(130.323, 3);
   });
 
+  it("uses a zero-duration tab change as point-in-time evidence until the next heartbeat", () => {
+    const course = goal("course", 30, urlRule("udemy.com/course/docker-ru"));
+    const result = calculateDailyProgress([course], activity({
+      windowEvents: [event(
+        0,
+        240,
+        { app: "Google-chrome", title: "Course: Docker from scratch | Udemy - Google Chrome" }
+      )],
+      browserEvents: [
+        event(
+          0,
+          0,
+          {
+            url: "https://www.udemy.com/course/docker-ru/learn/lecture/30644492#overview",
+            title: "Course: Docker from scratch | Udemy"
+          },
+          DATE,
+          "aw-watcher-web-chrome_fedora"
+        ),
+        event(
+          90,
+          150,
+          {
+            url: "https://www.udemy.com/course/docker-ru/learn/lecture/30644492#overview",
+            title: "Course: Docker from scratch | Udemy"
+          },
+          DATE,
+          "aw-watcher-web-chrome_fedora"
+        )
+      ],
+      afkEvents: [event(0, 240, { status: "not-afk" })]
+    }), DATE);
+
+    expect(result[0]?.activeSeconds).toBe(240);
+  });
+
+  it("does not let a zero-duration browser event create time without a foreground window", () => {
+    const course = goal("course", 30, urlRule("example.com/course"));
+    const result = calculateDailyProgress([course], activity({
+      browserEvents: [event(
+        0,
+        0,
+        { url: "https://example.com/course", title: "Course" },
+        DATE,
+        "aw-watcher-web-chrome_fedora"
+      )]
+    }), DATE);
+
+    expect(result[0]?.activeSeconds).toBe(0);
+  });
+
   it("clips inferred browser context at the two-minute grace boundary", () => {
     const typing = goal("typing", 30, urlRule("keybr.com"));
     const result = calculateDailyProgress([typing], activity({
@@ -209,6 +260,53 @@ describe("daily progress", () => {
         DATE,
         "aw-watcher-web-chrome_fedora"
       )]
+    }), DATE);
+
+    expect(result[0]?.activeSeconds).toBe(60);
+  });
+
+  it("does not keep counting a stale active URL after the foreground browser title changes", () => {
+    const course = goal("course", 30, urlRule("example.com/course"));
+    const result = calculateDailyProgress([course], activity({
+      windowEvents: [
+        event(0, 60, { app: "Google-chrome", title: "Course - Google Chrome" }),
+        event(60, 120, { app: "Google-chrome", title: "ChatGPT - Google Chrome" })
+      ],
+      browserEvents: [event(
+        0,
+        180,
+        { url: "https://example.com/course", title: "Course" },
+        DATE,
+        "aw-watcher-web-chrome_fedora"
+      )]
+    }), DATE);
+
+    expect(result[0]?.activeSeconds).toBe(60);
+  });
+
+  it("lets newer point evidence supersede an overlapping event from the previous tab", () => {
+    const course = goal("course", 30, urlRule("example.com/course"));
+    const result = calculateDailyProgress([course], activity({
+      windowEvents: [
+        event(0, 60, { app: "Google-chrome", title: "Course - Google Chrome" }),
+        event(60, 120, { app: "Google-chrome", title: "ChatGPT - Google Chrome" })
+      ],
+      browserEvents: [
+        event(
+          0,
+          180,
+          { url: "https://example.com/course", title: "Course" },
+          DATE,
+          "aw-watcher-web-chrome_fedora"
+        ),
+        event(
+          60,
+          0,
+          { url: "https://chatgpt.com", title: "ChatGPT" },
+          DATE,
+          "aw-watcher-web-chrome_fedora"
+        )
+      ]
     }), DATE);
 
     expect(result[0]?.activeSeconds).toBe(60);

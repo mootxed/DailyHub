@@ -9,6 +9,11 @@ interface TimedEvent {
   endMs: number;
 }
 
+interface BrowserEventIndex {
+  bySource: Map<string, TimedEvent[]>;
+  withoutSource: TimedEvent[];
+}
+
 interface GoalContext {
   goalId: string;
   lastPrimaryTimestamp: number;
@@ -16,13 +21,26 @@ interface GoalContext {
 
 const BROWSER_CONTEXT_GRACE_MS = 120_000;
 
-function parseEvents(events: ActivityEvent[], rangeStart: number, rangeEnd: number): TimedEvent[] {
+function parseEvents(
+  events: ActivityEvent[],
+  rangeStart: number,
+  rangeEnd: number,
+  preservePointEvents = false
+): TimedEvent[] {
   return events.flatMap((event) => {
     const eventStart = new Date(event.timestamp).getTime();
+    if (!Number.isFinite(eventStart)) return [];
+
+    if (preservePointEvents && Number.isFinite(event.duration) && event.duration === 0) {
+      return eventStart >= rangeStart && eventStart < rangeEnd
+        ? [{ event, startMs: eventStart, endMs: eventStart }]
+        : [];
+    }
+
     const duration = Number.isFinite(event.duration) ? Math.max(0, event.duration) : 0;
     const startMs = Math.max(rangeStart, eventStart);
     const endMs = Math.min(rangeEnd, eventStart + duration * 1000);
-    return Number.isFinite(eventStart) && endMs > startMs ? [{ event, startMs, endMs }] : [];
+    return endMs > startMs ? [{ event, startMs, endMs }] : [];
   }).sort((left, right) => left.startMs - right.startMs);
 }
 
@@ -78,16 +96,20 @@ function browserSourceKey(event: TimedEvent): string | undefined {
   return identity.length > 0 && identity !== "unknown" ? identity : undefined;
 }
 
-function indexBrowserEvents(events: TimedEvent[]): Map<string, TimedEvent[]> {
+function indexBrowserEvents(events: TimedEvent[]): BrowserEventIndex {
   const eventsBySource = new Map<string, TimedEvent[]>();
+  const withoutSource: TimedEvent[] = [];
   for (const event of events) {
     const source = browserSourceKey(event);
-    if (source === undefined) continue;
+    if (source === undefined) {
+      withoutSource.push(event);
+      continue;
+    }
     const sourceEvents = eventsBySource.get(source) ?? [];
     sourceEvents.push(event);
     eventsBySource.set(source, sourceEvents);
   }
-  return eventsBySource;
+  return { bySource: eventsBySource, withoutSource };
 }
 
 const CHROMIUM_APPLICATIONS = ["chrome", "chromium", "edge", "vivaldi"];
@@ -98,55 +120,83 @@ function containsAny(value: string, candidates: string[]): boolean {
   return candidates.some((candidate) => value.includes(candidate));
 }
 
-function browserIsActive(windowEvent: TimedEvent | undefined, browserEvent: TimedEvent | undefined): boolean {
+function browserApplicationMatches(
+  windowEvent: TimedEvent | undefined,
+  browserEvent: TimedEvent | undefined
+): boolean {
   if (windowEvent === undefined || browserEvent === undefined) return false;
   const application = normalizeIdentity(stringData(windowEvent, "app") ?? "");
-  const sourceBrowser = normalizeIdentity(browserIdentity(browserEvent) ?? "");
-  if (application.length > 0 && sourceBrowser.length > 0 && application.includes(sourceBrowser)) return true;
+  const sourceBrowser = browserSourceKey(browserEvent);
+  if (application.length === 0) return false;
+  if (sourceBrowser === undefined) return containsAny(application, BROWSER_APPLICATIONS);
+  if (application.includes(sourceBrowser)) return true;
 
   if (sourceBrowser.includes("chrome") || sourceBrowser.includes("chromium")) {
     return containsAny(application, CHROMIUM_APPLICATIONS);
   }
   if (sourceBrowser.includes("firefox")) return containsAny(application, FIREFOX_APPLICATIONS);
-  if (sourceBrowser.length > 0 && sourceBrowser !== "unknown") return false;
-
-  const windowTitle = stringData(windowEvent, "title")?.trim().toLocaleLowerCase() ?? "";
-  const browserTitle = stringData(browserEvent, "title")?.trim().toLocaleLowerCase() ?? "";
-  return containsAny(application, BROWSER_APPLICATIONS)
-    && windowTitle.length > 0
-    && browserTitle.length > 0
-    && (windowTitle.includes(browserTitle) || browserTitle.includes(windowTitle));
+  return false;
 }
 
 function browserTitleMatchesWindow(windowEvent: TimedEvent, browserEvent: TimedEvent): boolean {
   const windowTitle = stringData(windowEvent, "title")?.trim().toLocaleLowerCase() ?? "";
   const browserTitle = stringData(browserEvent, "title")?.trim().toLocaleLowerCase() ?? "";
-  return windowTitle.length > 0 && browserTitle.length > 0 && windowTitle.includes(browserTitle);
+  return windowTitle.length > 0
+    && browserTitle.length > 0
+    && (windowTitle.includes(browserTitle) || browserTitle.includes(windowTitle));
+}
+
+function browserIsActive(windowEvent: TimedEvent | undefined, browserEvent: TimedEvent | undefined): boolean {
+  if (!browserApplicationMatches(windowEvent, browserEvent) || windowEvent === undefined || browserEvent === undefined) {
+    return false;
+  }
+
+  const windowTitle = stringData(windowEvent, "title")?.trim() ?? "";
+  const browserTitle = stringData(browserEvent, "title")?.trim() ?? "";
+  if (windowTitle.length > 0 && browserTitle.length > 0) {
+    return browserTitleMatchesWindow(windowEvent, browserEvent);
+  }
+  return browserSourceKey(browserEvent) !== undefined;
 }
 
 function findBrowserContextAt(
-  browserEvents: TimedEvent[],
-  browserEventsBySource: Map<string, TimedEvent[]>,
+  browserEventIndex: BrowserEventIndex,
   windowEvent: TimedEvent | undefined,
   timestamp: number
 ): TimedEvent | undefined {
-  const activeEvent = eventAt(browserEvents, timestamp, (event) => browserIsActive(windowEvent, event));
-  if (activeEvent !== undefined) return activeEvent;
   if (windowEvent === undefined) return undefined;
 
   let latestEvidence: TimedEvent | undefined;
-  for (const sourceEvents of browserEventsBySource.values()) {
+  for (const sourceEvents of browserEventIndex.bySource.values()) {
     const candidate = latestEventAtOrBefore(sourceEvents, timestamp);
-    if (candidate === undefined || !browserIsActive(windowEvent, candidate)) continue;
+    if (candidate === undefined || !browserApplicationMatches(windowEvent, candidate)) continue;
     if (latestEvidence === undefined || candidate.startMs > latestEvidence.startMs) {
       latestEvidence = candidate;
     }
   }
 
+  const activeWithoutSource = eventAt(
+    browserEventIndex.withoutSource,
+    timestamp,
+    (event) => browserApplicationMatches(windowEvent, event)
+  );
+  if (
+    activeWithoutSource !== undefined
+    && (latestEvidence === undefined || activeWithoutSource.startMs > latestEvidence.startMs)
+  ) {
+    latestEvidence = activeWithoutSource;
+  }
+
   if (latestEvidence === undefined) return undefined;
+  if (latestEvidence.endMs > timestamp) {
+    return browserIsActive(windowEvent, latestEvidence) ? latestEvidence : undefined;
+  }
+
   const graceEnd = latestEvidence.endMs + BROWSER_CONTEXT_GRACE_MS;
-  return timestamp >= latestEvidence.endMs
+  return browserSourceKey(latestEvidence) !== undefined
+    && timestamp >= latestEvidence.endMs
     && timestamp < graceEnd
+    && browserApplicationMatches(windowEvent, latestEvidence)
     && browserTitleMatchesWindow(windowEvent, latestEvidence)
     ? latestEvidence
     : undefined;
@@ -174,8 +224,8 @@ export function calculateDailyProgress(
   const rangeStart = range.start.getTime();
   const rangeEnd = range.end.getTime();
   const windowEvents = parseEvents(activity.windowEvents, rangeStart, rangeEnd);
-  const browserEvents = parseEvents(activity.browserEvents, rangeStart, rangeEnd);
-  const browserEventsBySource = indexBrowserEvents(browserEvents);
+  const browserEvents = parseEvents(activity.browserEvents, rangeStart, rangeEnd, true);
+  const browserEventIndex = indexBrowserEvents(browserEvents);
   const afkEvents = parseEvents(activity.afkEvents, rangeStart, rangeEnd);
   const boundaries = new Set<number>([rangeStart, rangeEnd]);
 
@@ -205,7 +255,7 @@ export function calculateDailyProgress(
     if (start === undefined || end === undefined || end <= start) continue;
 
     const windowEvent = eventAt(windowEvents, start);
-    const browserEvent = findBrowserContextAt(browserEvents, browserEventsBySource, windowEvent, start);
+    const browserEvent = findBrowserContextAt(browserEventIndex, windowEvent, start);
     if (windowEvent === undefined && browserEvent === undefined) continue;
 
     const activityContext = contextAt(windowEvent, browserEvent);
