@@ -478,6 +478,7 @@ export class DailyHubView extends ItemView {
       activity: computerActivity,
       categories: this.plugin.data.activityCategories,
       mode: this.dayTimelineMode,
+      isToday: isToday(this.selectedDateKey, today),
       setMode: (mode) => {
         this.dayTimelineMode = mode;
         void this.refresh();

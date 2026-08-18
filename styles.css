@@ -21,14 +21,14 @@
   --dh-danger: #c13c43;
   --dh-danger-soft: #ffe3e4;
   --dh-info: #287da8;
-  --dh-goal-color-1: #7652c9;
-  --dh-goal-color-2: #138579;
-  --dh-goal-color-3: #356fbd;
-  --dh-goal-color-4: #a86416;
-  --dh-goal-color-5: #ad4d78;
-  --dh-goal-color-6: #547b2b;
-  --dh-goal-color-7: #99613f;
-  --dh-goal-color-8: #267d9d;
+  --dh-goal-color-1: #6f4fd1;
+  --dh-goal-color-2: #087f72;
+  --dh-goal-color-3: #2f6fb8;
+  --dh-goal-color-4: #a86100;
+  --dh-goal-color-5: #b13f70;
+  --dh-goal-color-6: #4f7c23;
+  --dh-goal-color-7: #b34e3d;
+  --dh-goal-color-8: #137c9e;
   --dh-shadow-sm: 0 1px 2px rgb(31 24 43 / 10%), 0 1px 3px rgb(31 24 43 / 8%);
   --dh-shadow-md: 0 2px 5px rgb(31 24 43 / 14%), 0 1px 2px rgb(31 24 43 / 8%);
   --dh-radius-sm: 4px;
@@ -56,14 +56,14 @@
   --dh-danger: #ff7378;
   --dh-danger-soft: #4b272c;
   --dh-info: #67c3ef;
-  --dh-goal-color-1: #a985ff;
-  --dh-goal-color-2: #48cbb8;
-  --dh-goal-color-3: #77a8ff;
-  --dh-goal-color-4: #e3a24a;
-  --dh-goal-color-5: #ec82ad;
-  --dh-goal-color-6: #94c866;
-  --dh-goal-color-7: #e28b5c;
-  --dh-goal-color-8: #64bddb;
+  --dh-goal-color-1: #a98cff;
+  --dh-goal-color-2: #42cfba;
+  --dh-goal-color-3: #74a9ff;
+  --dh-goal-color-4: #edaa52;
+  --dh-goal-color-5: #f087b2;
+  --dh-goal-color-6: #9bd06b;
+  --dh-goal-color-7: #f1836b;
+  --dh-goal-color-8: #5bc5e5;
   --dh-shadow-sm: 0 1px 2px rgb(0 0 0 / 28%);
   --dh-shadow-md: 0 3px 7px rgb(0 0 0 / 34%);
 }
@@ -1721,7 +1721,7 @@
 
 .daily-hub-day-timeline-content {
   --dh-timeline-column-gap: 12px;
-  --dh-timeline-label-width: 138px;
+  --dh-timeline-label-width: 148px;
   min-width: calc(var(--dh-timeline-label-width) + var(--dh-timeline-column-gap) + 520px);
 }
 
@@ -1825,29 +1825,39 @@
   top: 0;
 }
 
-.daily-hub-day-timeline-segment {
-  background: var(--dh-activity-color);
+.daily-hub-view button.daily-hub-day-timeline-segment {
+  appearance: none;
+  background: transparent;
   border: 0;
   border-radius: 3px;
   box-shadow: none;
-  height: 10px;
-  max-height: 10px;
-  min-height: 10px;
+  height: 12px;
+  max-height: 12px;
+  min-height: 12px;
   min-width: 2px;
   padding: 0;
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
-  transition: filter 100ms ease, box-shadow 100ms ease;
 }
 
 button.daily-hub-day-timeline-segment:not(:disabled) { cursor: pointer; }
 button.daily-hub-day-timeline-segment:disabled { opacity: 1; }
-button.daily-hub-day-timeline-segment:hover {
+
+.daily-hub-day-timeline-segment-fill {
+  background-color: var(--dh-activity-color);
+  border-radius: inherit;
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  transition: filter 100ms ease, box-shadow 100ms ease;
+}
+
+button.daily-hub-day-timeline-segment:not(:disabled):hover .daily-hub-day-timeline-segment-fill {
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--dh-activity-color) 72%, var(--dh-text));
   filter: brightness(1.08) saturate(1.04);
-  z-index: 2;
 }
+button.daily-hub-day-timeline-segment:not(:disabled):hover { z-index: 2; }
 button.daily-hub-day-timeline-segment:focus-visible {
   outline: 2px solid var(--dh-text);
   outline-offset: 1px;
@@ -2064,7 +2074,7 @@ button.daily-hub-day-timeline-segment:focus-visible {
 @container (max-width: 700px) {
   .daily-hub-view { padding: var(--size-4-4); }
 
-  .daily-hub-day-timeline-content { --dh-timeline-label-width: 112px; }
+  .daily-hub-day-timeline-content { --dh-timeline-label-width: 126px; }
 
   .daily-hub-header-hud {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2121,7 +2131,7 @@ button.daily-hub-day-timeline-segment:focus-visible {
 
   .daily-hub-day-timeline-content {
     --dh-timeline-column-gap: 10px;
-    --dh-timeline-label-width: 92px;
+    --dh-timeline-label-width: 104px;
   }
 
   .daily-hub-day-timeline-row,

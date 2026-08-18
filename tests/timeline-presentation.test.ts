@@ -4,6 +4,7 @@ import {
   buildTimelineLanes,
   coalesceTimelineSegments,
   formatActivityDuration,
+  formatCompactActivityDuration,
   getNiceTimelineTickStep,
   getVisibleTimelineRange,
   type TimelinePresentationSegment
@@ -40,6 +41,16 @@ describe("timeline presentation", () => {
     expect(range.startMs).toBe(timestamp(9));
     expect(range.endMs).toBe(timestamp(15));
     expect(range.ticks).toHaveLength(7);
+  });
+
+  it("limits today's rounded range without clipping recorded activity", () => {
+    const now = timestamp(1, 34);
+    const range = getVisibleTimelineRange(timestamp(0), now, now + 10 * 60_000);
+    expect(range.endMs).toBe(timestamp(1, 44));
+    expect(range.ticks.at(-1)).toBe(timestamp(1, 30));
+
+    const futureActivity = timestamp(1, 48);
+    expect(getVisibleTimelineRange(timestamp(0), futureActivity, now + 10 * 60_000).endMs).toBe(futureActivity);
   });
 
   it("sorts top lanes and groups the remainder without changing totals", () => {
@@ -89,5 +100,15 @@ describe("timeline presentation", () => {
     expect(formatActivityDuration(34)).toBe("34 sec");
     expect(formatActivityDuration(374)).toBe("6 min 14 sec");
     expect(formatActivityDuration(3_600)).toBe("1 h");
+  });
+
+  it.each([
+    [47, "47s"],
+    [2 * 60 + 13, "2m 13s"],
+    [9 * 60 + 41, "9m 41s"],
+    [60 * 60 + 7 * 60 + 53, "1h 07m"],
+    [2 * 60 * 60, "2h"]
+  ])("formats %i seconds compactly as %s", (seconds, expected) => {
+    expect(formatCompactActivityDuration(seconds)).toBe(expected);
   });
 });

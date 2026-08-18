@@ -4,6 +4,7 @@ import type { ActivityCategory } from "../models";
 import {
   buildTimelineLanes,
   formatActivityDuration,
+  formatCompactActivityDuration,
   getVisibleTimelineRange,
   type TimelineLane,
   type TimelinePresentationSegment
@@ -15,6 +16,7 @@ export interface DayTimelineViewOptions {
   activity: DailyComputerActivity;
   categories: ActivityCategory[];
   mode: DayTimelineMode;
+  isToday: boolean;
   setMode: (mode: DayTimelineMode) => void;
   openDetails?: (item: ActivityBreakdownItem, mode: DayTimelineMode) => void;
 }
@@ -96,7 +98,10 @@ export function renderDayTimelineView(container: HTMLElement, options: DayTimeli
 
   const first = Math.min(...options.activity.segments.map((segment) => segment.startMs));
   const last = Math.max(...options.activity.segments.map((segment) => segment.endMs));
-  const range = getVisibleTimelineRange(first, last);
+  const nowMs = Date.now();
+  const visibleLast = options.isToday ? Math.max(last, nowMs) : last;
+  const maxEndMs = options.isToday ? nowMs + 10 * 60_000 : undefined;
+  const range = getVisibleTimelineRange(first, visibleLast, maxEndMs);
   const span = range.endMs - range.startMs;
   const presentation = buildTimelineLanes(options.activity.segments, options.mode, options.categories);
   const colors = laneColors(presentation.lanes, options.mode, options.categories);
@@ -124,7 +129,10 @@ export function renderDayTimelineView(container: HTMLElement, options: DayTimeli
     });
     label.createSpan({ cls: "daily-hub-day-timeline-swatch", attr: { "aria-hidden": "true" } });
     label.createEl("strong", { text: lane.label });
-    label.createEl("span", { text: formatActivityDuration(lane.seconds), cls: "daily-hub-day-timeline-duration" });
+    label.createEl("span", {
+      text: formatCompactActivityDuration(lane.seconds),
+      cls: "daily-hub-day-timeline-duration"
+    });
     const track = row.createDiv({
       cls: "daily-hub-day-timeline-lane",
       attr: { role: "group", "aria-label": `${lane.label}, ${formatActivityDuration(lane.seconds)}` }
@@ -141,6 +149,7 @@ export function renderDayTimelineView(container: HTMLElement, options: DayTimeli
           style: `left: ${position(segment.startMs)}%; width: ${((segment.endMs - segment.startMs) / span) * 100}%`
         }
       });
+      block.createSpan({ cls: "daily-hub-day-timeline-segment-fill", attr: { "aria-hidden": "true" } });
       if (options.openDetails === undefined) block.disabled = true;
       else block.addEventListener("click", () => options.openDetails?.(details, options.mode));
     }

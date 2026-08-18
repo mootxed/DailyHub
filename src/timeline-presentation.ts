@@ -51,11 +51,14 @@ function ceilToLocalStep(timestamp: number, stepMs: number): number {
   return floor === timestamp ? timestamp : floor + stepMs;
 }
 
-export function getVisibleTimelineRange(firstMs: number, lastMs: number): TimelineRange {
+export function getVisibleTimelineRange(firstMs: number, lastMs: number, maxEndMs?: number): TimelineRange {
   const safeLast = Math.max(firstMs, lastMs);
   const stepMs = getNiceTimelineTickStep(safeLast - firstMs);
   const startMs = floorToLocalStep(firstMs, stepMs);
-  const endMs = Math.max(startMs + stepMs, ceilToLocalStep(safeLast, stepMs));
+  const roundedEndMs = Math.max(startMs + stepMs, ceilToLocalStep(safeLast, stepMs));
+  const endMs = maxEndMs === undefined
+    ? roundedEndMs
+    : Math.max(startMs + stepMs, Math.min(roundedEndMs, Math.max(safeLast, maxEndMs)));
   const ticks: number[] = [];
   for (let timestamp = startMs; timestamp <= endMs; timestamp += stepMs) ticks.push(timestamp);
   return { startMs, endMs, stepMs, ticks };
@@ -72,6 +75,16 @@ export function formatActivityDuration(seconds: number): string {
     ? `${hours} h ${minutes} min ${remainder} sec`
     : minutes > 0 ? `${hours} h ${minutes} min` : `${hours} h`;
   return remainder > 0 ? `${minutes} min ${remainder} sec` : `${minutes} min`;
+}
+
+export function formatCompactActivityDuration(seconds: number): string {
+  const roundedSeconds = Math.round(Math.max(0, seconds));
+  const hours = Math.floor(roundedSeconds / 3_600);
+  const minutes = Math.floor((roundedSeconds % 3_600) / 60);
+  const remainder = roundedSeconds % 60;
+  if (hours > 0) return minutes > 0 ? `${hours}h ${String(minutes).padStart(2, "0")}m` : `${hours}h`;
+  if (minutes > 0) return remainder > 0 ? `${minutes}m ${remainder}s` : `${minutes}m`;
+  return `${remainder}s`;
 }
 
 export function coalesceTimelineSegments(
