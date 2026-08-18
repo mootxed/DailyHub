@@ -44,8 +44,12 @@ class DeleteGoalConfirmationModal extends Modal {
   }
 
   override onOpen(): void {
+    this.modalEl.addClass("daily-hub-modal", "daily-hub-delete-modal");
     this.titleEl.setText(`Delete "${this.goalName}"?`);
-    this.contentEl.createEl("p", { text: "This will permanently remove this goal." });
+    this.contentEl.createEl("p", {
+      text: "This permanently removes the goal, its schedule, and its tracking rules.",
+      cls: "daily-hub-modal-intro"
+    });
 
     const actions = this.contentEl.createDiv({ cls: "daily-hub-modal-actions" });
     this.cancelButton = actions.createEl("button", { text: "Cancel" });
@@ -101,7 +105,8 @@ export class GoalEditorModal extends Modal {
   }
 
   override onOpen(): void {
-    this.titleEl.setText(this.plugin.hasGoal(this.draft.id) ? "Edit daily goal" : "Add daily goal");
+    this.modalEl.addClass("daily-hub-modal", "daily-hub-goal-editor-modal");
+    this.titleEl.setText(this.plugin.hasGoal(this.draft.id) ? "Edit goal" : "Add goal");
     this.render();
   }
 
@@ -113,14 +118,21 @@ export class GoalEditorModal extends Modal {
     this.contentEl.empty();
     this.scheduleTargetInputs.clear();
 
-    new Setting(this.contentEl)
+    this.contentEl.createEl("p", {
+      text: "Define what counts, when to track it, and the target for each day.",
+      cls: "daily-hub-modal-intro"
+    });
+    const general = this.contentEl.createDiv({ cls: "daily-hub-form-section" });
+    general.createEl("h3", { text: "General" });
+
+    new Setting(general)
       .setName("Name")
       .addText((text) => text
         .setPlaceholder("Typing practice")
         .setValue(this.draft.name)
         .onChange((value) => { this.draft.name = value; }));
 
-    new Setting(this.contentEl)
+    new Setting(general)
       .setName("Default target")
       .setDesc("Default minutes for recurring schedule days. Custom weekday targets stay unchanged.")
       .addText((text) => {
@@ -135,13 +147,37 @@ export class GoalEditorModal extends Modal {
         });
       });
 
-    new Setting(this.contentEl)
+    new Setting(general)
       .setName("Enabled")
       .addToggle((toggle) => toggle.setValue(this.draft.enabled).onChange((value) => {
         this.draft.enabled = value;
       }));
 
-    new Setting(this.contentEl)
+    const tracking = this.contentEl.createDiv({ cls: "daily-hub-form-section daily-hub-tracking-section" });
+    tracking.createEl("h3", { text: "Tracking rules" });
+    tracking.createEl("p", {
+      text: "Primary rules start a session. Continuation rules can keep it active while the context window is open.",
+      cls: "daily-hub-muted"
+    });
+    this.renderRuleSection(
+      tracking,
+      "primary",
+      "Primary rules",
+      "These activities directly identify and count toward this goal.",
+      "Add primary rule"
+    );
+    this.renderRuleSection(
+      tracking,
+      "continuation",
+      "Continuation rules",
+      "Activities allowed shortly after a Primary match. They do not extend the context timeout.",
+      "Add continuation rule"
+    );
+    this.renderSchedule();
+
+    const advanced = this.contentEl.createDiv({ cls: "daily-hub-form-section" });
+    advanced.createEl("h3", { text: "Advanced context" });
+    new Setting(advanced)
       .setName("Context timeout (minutes)")
       .setDesc(
         "How long continuation activities may count after the most recent Primary activity. "
@@ -156,25 +192,13 @@ export class GoalEditorModal extends Modal {
         });
       });
 
-    this.renderRuleSection(
-      "primary",
-      "Primary rules",
-      "These activities directly identify and count toward this goal.",
-      "Add primary rule"
-    );
-    this.renderRuleSection(
-      "continuation",
-      "Continuation rules",
-      "Activities allowed shortly after a Primary match. They do not extend the context timeout.",
-      "Add continuation rule"
-    );
-    this.renderSchedule();
-
     const actions = this.contentEl.createDiv({ cls: "daily-hub-modal-actions" });
     if (isDeleteGoalAvailable(this.plugin, this.draft.id)) {
       const remove = actions.createEl("button", { text: "Delete goal", cls: "mod-warning" });
       remove.addEventListener("click", () => { this.confirmDelete(); });
     }
+    const cancel = actions.createEl("button", { text: "Cancel" });
+    cancel.addEventListener("click", () => this.close());
     const save = actions.createEl("button", { text: "Save goal", cls: "mod-cta" });
     save.addEventListener("click", () => { void this.save(); });
   }
@@ -182,8 +206,8 @@ export class GoalEditorModal extends Modal {
   private renderSchedule(): void {
     const schedule = getGoalSchedule(this.draft);
     this.draft.schedule = schedule;
-    const section = this.contentEl.createDiv({ cls: "daily-hub-schedule-section" });
-    section.createEl("h3", { text: "Weekly schedule" });
+    const section = this.contentEl.createDiv({ cls: "daily-hub-form-section daily-hub-schedule-section" });
+    section.createEl("h3", { text: "Schedule" });
     section.createEl("p", {
       text: "Changing the default updates days that still use the previous default. Rest days do not affect streaks.",
       cls: "daily-hub-muted"
@@ -236,13 +260,14 @@ export class GoalEditorModal extends Modal {
   }
 
   private renderRuleSection(
+    container: HTMLElement,
     role: GoalRuleRole,
     title: string,
     description: string,
     addLabel: string
   ): void {
-    const section = this.contentEl.createDiv({ cls: "daily-hub-rule-section" });
-    section.createEl("h3", { text: title });
+    const section = container.createDiv({ cls: "daily-hub-rule-section" });
+    section.createEl("h4", { text: title });
     section.createEl("p", {
       text: description,
       cls: "daily-hub-muted"

@@ -25,6 +25,7 @@ export class GoalDetailsModal extends Modal {
   }
 
   override onOpen(): void {
+    this.modalEl.addClass("daily-hub-modal", "daily-hub-details-modal");
     this.render();
     if (this.stats.range === undefined) void this.refresh(undefined, false);
   }
@@ -54,6 +55,7 @@ export class GoalDetailsModal extends Modal {
     }
 
     const selected = container.createDiv({ cls: "daily-hub-details-selected" });
+    selected.createEl("div", { text: "Primary progress", cls: "daily-hub-kicker" });
     selected.createEl("h3", { text: isToday(this.selectedDateKey) ? "Today" : "Selected day" });
     selected.createEl("div", {
       text: new Intl.DateTimeFormat(undefined, { weekday: "long", month: "long", day: "numeric" })
@@ -99,7 +101,9 @@ export class GoalDetailsModal extends Modal {
       });
     }
 
-    const weekly = container.createDiv({ cls: "daily-hub-details-weekly" });
+    const weeklySection = container.createDiv({ cls: "daily-hub-details-section" });
+    weeklySection.createEl("h3", { text: "This week" });
+    const weekly = weeklySection.createDiv({ cls: "daily-hub-details-weekly" });
     const total = weekly.createDiv();
     total.createEl("span", { text: "This week", cls: "daily-hub-muted" });
     total.createEl("strong", { text: formatDuration(week.totalSeconds) });
@@ -109,7 +113,7 @@ export class GoalDetailsModal extends Modal {
 
     this.renderRange(container);
 
-    const days = container.createDiv({ cls: "daily-hub-details-days" });
+    const days = weeklySection.createDiv({ cls: "daily-hub-details-days" });
     for (const day of week.days) {
       const row = days.createDiv({ cls: "daily-hub-details-day" });
       row.createEl("span", {

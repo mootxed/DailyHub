@@ -24,7 +24,13 @@ export class DailyHubSettingTab extends PluginSettingTab {
   override display(): void {
     const { containerEl } = this;
     containerEl.empty();
+    containerEl.addClass("daily-hub-settings");
     containerEl.createEl("h1", { text: "Daily Hub" });
+    containerEl.createEl("p", {
+      text: "Connect activity tracking and manage the goals shown on your dashboard.",
+      cls: "daily-hub-settings-intro"
+    });
+    containerEl.createEl("h2", { text: "Activity tracking" });
 
     new Setting(containerEl)
       .setName("ActivityWatch URL")
@@ -83,6 +89,10 @@ export class DailyHubSettingTab extends PluginSettingTab {
       }));
 
     containerEl.createEl("h2", { text: "Daily goals" });
+    containerEl.createEl("p", {
+      text: "Goals are measured automatically from matching apps, windows, and websites.",
+      cls: "daily-hub-settings-section-copy"
+    });
     new Setting(containerEl)
       .setName("Add goal")
       .setDesc("Rules within each section use OR logic.")

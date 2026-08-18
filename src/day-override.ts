@@ -18,6 +18,7 @@ export class DayOverrideModal extends Modal {
   }
 
   override onOpen(): void {
+    this.modalEl.addClass("daily-hub-modal", "daily-hub-override-modal");
     this.titleEl.setText(`Adjust ${this.goal.name}`);
     this.render();
   }
@@ -30,12 +31,16 @@ export class DayOverrideModal extends Modal {
     const container = this.contentEl;
     container.empty();
     const scheduleDay = getGoalSchedule(this.goal)[getWeekday(this.dateKey)];
-    container.createEl("p", {
+    const context = container.createDiv({ cls: "daily-hub-override-context" });
+    context.createEl("div", { text: "Selected day", cls: "daily-hub-kicker" });
+    context.createEl("strong", {
       text: `${this.dateKey} · ${scheduleDay.enabled ? `Scheduled target: ${scheduleDay.targetMinutes} min` : "Scheduled rest day"}`,
-      cls: "daily-hub-muted"
     });
 
-    new Setting(container)
+    const custom = container.createDiv({ cls: "daily-hub-form-section" });
+    custom.createEl("h3", { text: "Custom target" });
+    custom.createEl("p", { text: "Change the target for this date only.", cls: "daily-hub-muted" });
+    new Setting(custom)
       .setName("Target for this day")
       .addText((text) => {
         text.inputEl.type = "number";
@@ -46,9 +51,9 @@ export class DayOverrideModal extends Modal {
     const actions = container.createDiv({ cls: "daily-hub-modal-actions daily-hub-override-actions" });
     const save = actions.createEl("button", { text: "Save target", cls: "mod-cta" });
     save.addEventListener("click", () => { void this.saveTarget(); });
-    const skip = actions.createEl("button", { text: "Skip this day" });
+    const skip = actions.createEl("button", { text: "Skip this day", cls: "daily-hub-skip-button" });
     skip.addEventListener("click", () => { void this.save({ kind: "skip" }); });
-    const reset = actions.createEl("button", { text: "Reset override" });
+    const reset = actions.createEl("button", { text: "Use default schedule", cls: "daily-hub-reset-button" });
     reset.disabled = this.goal.overrides?.[this.dateKey] === undefined;
     reset.addEventListener("click", () => { void this.save(undefined); });
   }
