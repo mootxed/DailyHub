@@ -29,6 +29,11 @@ import { DayOverrideModal } from "./day-override";
 import { GoalEditorModal } from "./goal-editor";
 import { GoalDetailsModal, type GoalDetailsStats } from "./goal-details";
 import { hasGoalTrackingStartedByDate, isGoalPaused } from "./goal-lifecycle";
+import {
+  formatLiveGoalDuration,
+  getGoalRuntimeUiState,
+  type GoalProgressState
+} from "./goal-runtime-ui";
 import { LongTermActivityState } from "./long-term-state";
 import type DailyHubPlugin from "./main";
 import type { ActivityWatchSnapshot, ActivityWatchStatus, DailyGoal, GoalProgress } from "./models";
@@ -62,6 +67,10 @@ interface WeekDayData {
 interface GoalRuntimeElements {
   card: HTMLElement;
   status: HTMLElement;
+  actualTime?: HTMLElement;
+  compactTime?: string;
+  liveTime?: string;
+  liveEligible: boolean;
   progressShell?: HTMLElement;
   pauseButton?: HTMLButtonElement;
   pauseIcon?: HTMLElement;
@@ -676,12 +685,15 @@ export class DailyHubView extends ItemView {
         ? `${formatDuration(day.totalSeconds ?? 0)} studied, ${day.completedGoals ?? 0} of ${day.goalCount} goals completed, ${Math.round(ratio * 100)}% planned progress`
         : "Activity data unavailable";
       const label = `${dateLabel}: ${details}`;
+      const tooltip = available
+        ? `${dateLabel}\n${formatDuration(day.totalSeconds ?? 0)}\n${day.completedGoals ?? 0} / ${day.goalCount} completed\n${Math.round(ratio * 100)}%`
+        : `${dateLabel}\n${details}`;
       const button = heatmap.createEl("button", {
         text: available ? "" : neutral ? "·" : "—",
         cls: `daily-hub-heatmap-cell${available ? ` is-level-${getHeatmapLevel(ratio)}` : neutral ? " is-rest" : " is-unavailable"}${selected ? " is-selected" : ""}`,
         attr: {
           "aria-label": label,
-          title: label,
+          title: tooltip,
           ...(selected ? { "aria-current": "date" } : {})
         }
       });
@@ -695,18 +707,19 @@ export class DailyHubView extends ItemView {
     const list = container.createDiv({ cls: "daily-hub-consistency" });
     for (const goal of goals) {
       const card = list.createDiv({ cls: "daily-hub-consistency-card" });
-      const heading = card.createDiv({ cls: "daily-hub-consistency-heading" });
-      heading.createEl("strong", { text: goal.goalName });
-      heading.createEl("span", { text: formatDuration(goal.totalSeconds), cls: "daily-hub-muted" });
-      card.createEl("div", {
-        text: `${goal.completedDays} / ${goal.availableDays} scheduled days completed`,
-        cls: "daily-hub-consistency-completion"
-      });
-      card.createEl("div", {
-        text: `Current streak ${goal.currentStreak} days · Best ${goal.bestStreak} days`,
-        cls: "daily-hub-muted"
-      });
+      card.createEl("strong", { text: goal.goalName, cls: "daily-hub-consistency-title" });
+      const metrics = card.createDiv({ cls: "daily-hub-consistency-metrics" });
+      this.renderConsistencyMetric(metrics, formatDuration(goal.totalSeconds), "total");
+      this.renderConsistencyMetric(metrics, `${goal.completedDays} / ${goal.availableDays}`, "completed");
+      this.renderConsistencyMetric(metrics, String(goal.currentStreak), "streak");
+      this.renderConsistencyMetric(metrics, String(goal.bestStreak), "best");
     }
+  }
+
+  private renderConsistencyMetric(container: HTMLElement, value: string, label: string): void {
+    const metric = container.createDiv({ cls: "daily-hub-consistency-metric" });
+    metric.createEl("strong", { text: value });
+    metric.createEl("span", { text: label });
   }
 
   private getLongTermAnalytics(todayKey: string): RangeAnalytics | undefined {
@@ -836,7 +849,7 @@ export class DailyHubView extends ItemView {
     selectedAvailable: boolean,
     future: boolean
   ): void {
-    const state = !progress.trackingStarted
+    const state: GoalProgressState = !progress.trackingStarted
       ? "untracked"
       : !progress.scheduled
       ? "rest"
@@ -876,6 +889,9 @@ export class DailyHubView extends ItemView {
     badge.createSpan({ text: stateLabel });
 
     const content = card.createDiv({ cls: "daily-hub-goal-content" });
+    let actualTime: HTMLElement | undefined;
+    let compactTime: string | undefined;
+    let liveTime: string | undefined;
     let progressShell: HTMLElement | undefined;
 
     if (!progress.trackingStarted) {
@@ -895,22 +911,32 @@ export class DailyHubView extends ItemView {
     } else {
       const summary = content.createDiv({ cls: "daily-hub-goal-summary" });
       const minutes = Math.floor(progress.actualMinutes);
-      summary.createEl("strong", { text: `${minutes} min`, cls: "daily-hub-goal-actual" });
+      compactTime = `${minutes} min`;
+      liveTime = formatLiveGoalDuration(progress.activeSeconds);
+      actualTime = summary.createEl("strong", { text: compactTime, cls: "daily-hub-goal-actual" });
       summary.createEl("span", { text: `goal ${progress.targetMinutes} min`, cls: "daily-hub-muted" });
 
       const progressRatio = progress.progressRatio ?? 0;
       progressShell = content.createDiv({ cls: "daily-hub-progress-shell" });
       progressShell.style.setProperty("--dh-progress-ratio", String(progressRatio));
-      const bar = progressShell.createEl("progress", {
-        cls: "daily-hub-progress",
+      const bar = progressShell.createDiv({
+        cls: "daily-hub-goal-progress",
         attr: {
-          max: "1",
-          value: String(progressRatio),
+          role: "progressbar",
+          "aria-valuemin": "0",
+          "aria-valuemax": String(progress.targetMinutes),
+          "aria-valuenow": String(Math.min(progress.actualMinutes, progress.targetMinutes)),
           "aria-label": `${goal.name}: ${minutes} of ${progress.targetMinutes} minutes`
         }
       });
-      bar.max = 1;
-      bar.value = progressRatio;
+      bar.createDiv({ cls: "daily-hub-goal-progress-fill" });
+      const emitter = progressShell.createSpan({
+        cls: "daily-hub-progress-emitter",
+        attr: { "aria-hidden": "true" }
+      });
+      for (let index = 0; index < 6; index += 1) {
+        emitter.createSpan({ cls: `daily-hub-progress-particle is-${index + 1}` });
+      }
 
       if (progress.completed) {
         const extra = Math.floor(progress.actualMinutes - progress.targetMinutes);
@@ -976,6 +1002,10 @@ export class DailyHubView extends ItemView {
     this.goalRuntimeElements.set(goal.id, {
       card,
       status: runtimeStatus,
+      actualTime,
+      compactTime,
+      liveTime,
+      liveEligible: selectedAvailable && progress.trackingStarted && progress.scheduled && !future,
       progressShell,
       pauseButton,
       pauseIcon,
@@ -1040,56 +1070,53 @@ export class DailyHubView extends ItemView {
     for (const [goalId, elements] of this.goalRuntimeElements) {
       const goal = this.plugin.data.goals.find((candidate) => candidate.id === goalId);
       if (goal === undefined) continue;
-      const paused = currentDay && isGoalPaused(goal);
-      const live = currentDay
-        && this.selectedActivityAvailable
-        && !paused
-        && liveGoalId === goalId;
+      const runtime = getGoalRuntimeUiState({
+        goalId,
+        liveGoalId,
+        currentDay,
+        activityAvailable: this.selectedActivityAvailable,
+        liveEligible: elements.liveEligible,
+        paused: isGoalPaused(goal)
+      });
       const wasPaused = elements.card.hasClass("is-paused");
       const wasLive = elements.card.hasClass("is-live");
-      elements.card.toggleClass("is-paused", paused);
-      elements.card.toggleClass("is-live", live);
+      elements.card.toggleClass("is-paused", runtime.paused);
+      elements.card.toggleClass("is-live", runtime.live);
 
-      if (wasPaused !== paused || wasLive !== live) {
+      if (wasPaused !== runtime.paused || wasLive !== runtime.live) {
         elements.status.empty();
-        if (paused) {
+        if (runtime.paused) {
           elements.status.addClass("is-paused");
           elements.status.removeClass("is-live");
           const icon = elements.status.createSpan({ attr: { "aria-hidden": "true" } });
           setIcon(icon, "pause");
-          elements.status.createSpan({ text: "Paused" });
-        } else if (live) {
+          elements.status.createSpan({ text: runtime.label });
+        } else if (runtime.live) {
           elements.status.addClass("is-live");
           elements.status.removeClass("is-paused");
           elements.status.createSpan({ cls: "daily-hub-live-dot", attr: { "aria-hidden": "true" } });
-          elements.status.createSpan({ text: "Tracking now" });
+          elements.status.createSpan({ text: runtime.label });
         } else {
           elements.status.removeClass("is-live", "is-paused");
         }
       }
 
-      const emitter = elements.progressShell?.querySelector(".daily-hub-progress-emitter");
-      if (!live) emitter?.remove();
-      elements.progressShell?.toggleClass("is-live", live);
-      if (live && emitter === null && elements.progressShell !== undefined) {
-        const newEmitter = elements.progressShell.createSpan({
-          cls: "daily-hub-progress-emitter",
-          attr: { "aria-hidden": "true" }
-        });
-        for (let index = 0; index < 6; index += 1) {
-          newEmitter.createSpan({ cls: `daily-hub-progress-particle is-${index + 1}` });
-        }
+      elements.progressShell?.toggleClass("is-live", runtime.particlesActive);
+      if (elements.actualTime !== undefined
+        && elements.compactTime !== undefined
+        && elements.liveTime !== undefined) {
+        elements.actualTime.setText(runtime.live ? elements.liveTime : elements.compactTime);
       }
 
       if (elements.pauseButton !== undefined
         && elements.pauseIcon !== undefined
         && elements.pauseLabel !== undefined) {
-        const pauseText = paused ? "Resume" : "Pause";
+        const pauseText = runtime.actionLabel;
         if (elements.pauseLabel.textContent !== pauseText) {
-          setIcon(elements.pauseIcon, paused ? "play" : "pause");
+          setIcon(elements.pauseIcon, runtime.paused ? "play" : "pause");
           elements.pauseLabel.setText(pauseText);
         }
-        elements.pauseButton.toggleClass("is-resume", paused);
+        elements.pauseButton.toggleClass("is-resume", runtime.paused);
         elements.pauseButton.setAttribute("aria-label", `${pauseText} ${goal.name}`);
       }
     }
