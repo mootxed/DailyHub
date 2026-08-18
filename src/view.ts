@@ -6,10 +6,12 @@ import {
   type RangeAnalytics
 } from "./analytics";
 import {
-  buildActivityTimeline,
+  buildActivityChartSeries,
+  formatChartDuration,
   getGoalColor,
-  getTimelineSegmentPosition
-} from "./activity-timeline";
+  getMaximumChartSeconds,
+  getNiceTimeScale
+} from "./activity-chart";
 import {
   formatDuration,
   formatRemainingDuration,
@@ -45,7 +47,6 @@ import type {
   ActivityWatchSnapshot,
   ActivityWatchStatus,
   DailyGoal,
-  DayActivity,
   GoalProgress
 } from "./models";
 import { BROWSER_CONTEXT_GRACE_MS, calculateDailyProgress, resolveTrackingAt } from "./progress";
@@ -72,7 +73,6 @@ interface WeekDayData {
   key: string;
   date: Date;
   future: boolean;
-  activity?: DayActivity;
   progress: GoalProgress[] | undefined;
 }
 
@@ -182,11 +182,10 @@ export class DailyHubView extends ItemView {
       };
     });
     const weekProgress = calculateWeekProgress(this.plugin.data.goals, weekActivity);
-    const week = weekProgress.map((day, index): WeekDayData => ({
+    const week = weekProgress.map((day): WeekDayData => ({
       key: day.dateKey,
       date: getLocalDateRange(day.dateKey).start,
       future: day.future,
-      activity: weekActivity[index]?.activity,
       progress: day.progress
     }));
 
@@ -269,8 +268,9 @@ export class DailyHubView extends ItemView {
 
     const daySummary = summarizeDay(this.plugin.data.goals, progress, this.selectedDateKey);
     const plannedProgress = applyScheduleToProgress(this.plugin.data.goals, progress, this.selectedDateKey);
+    const bento = container.createDiv({ cls: "daily-hub-bento" });
 
-    const header = container.createDiv({ cls: "daily-hub-header" });
+    const header = bento.createDiv({ cls: "daily-hub-header daily-hub-bento-header" });
     const headerTop = header.createDiv({ cls: "daily-hub-header-top" });
     const brand = headerTop.createDiv({ cls: "daily-hub-brand" });
     brand.createEl("h1", { text: "Daily Hub" });
@@ -305,10 +305,9 @@ export class DailyHubView extends ItemView {
     connectionCopy.createEl("span", { text: "ActivityWatch" });
     connectionCopy.createEl("strong", { text: status.kind === "connected" ? "Connected" : "Offline" });
 
-    this.renderDateNavigator(container, today);
+    this.renderDateNavigator(bento, today);
 
-    const primaryGrid = container.createDiv({ cls: "daily-hub-primary-grid" });
-    const overview = primaryGrid.createDiv({ cls: "daily-hub-day-overview" });
+    const overview = bento.createDiv({ cls: "daily-hub-day-overview daily-hub-bento-day" });
     const dayHeader = overview.createDiv({ cls: "daily-hub-day-header" });
     const dayTitle = dayHeader.createDiv();
     if (isToday(this.selectedDateKey, today)) {
@@ -364,19 +363,20 @@ export class DailyHubView extends ItemView {
       }
     }
 
-    this.renderDayPlan(primaryGrid, date, today, progress, selectedAvailable, future);
+    this.renderDayPlan(bento, date, today, progress, selectedAvailable, future);
     if (status.kind === "offline" || !status.windowWatcherAvailable
       || !status.browserWatcherAvailable || !status.afkWatcherAvailable) {
-      this.renderStatus(container, status);
+      this.renderStatus(bento, status);
     }
 
-    const goalsHeader = container.createDiv({ cls: "daily-hub-section-heading" });
+    const goalsTile = bento.createDiv({ cls: "daily-hub-bento-goals daily-hub-panel" });
+    const goalsHeader = goalsTile.createDiv({ cls: "daily-hub-section-heading" });
     goalsHeader.createEl("div", { text: "Current actions", cls: "daily-hub-kicker" });
     goalsHeader.createEl("h2", { text: "Goals", cls: "daily-hub-section-title" });
 
     const enabledGoals = this.plugin.data.goals.filter((goal) => goal.enabled);
     if (enabledGoals.length === 0) {
-      const empty = container.createDiv({ cls: "daily-hub-empty" });
+      const empty = goalsTile.createDiv({ cls: "daily-hub-empty" });
       const icon = empty.createDiv({ cls: "daily-hub-empty-icon", attr: { "aria-hidden": "true" } });
       setIcon(icon, "list-plus");
       empty.createEl("h3", { text: "No goals yet" });
@@ -387,7 +387,7 @@ export class DailyHubView extends ItemView {
       emptyAdd.createSpan({ text: "Add goal" });
       emptyAdd.addEventListener("click", () => new GoalEditorModal(this.plugin).open());
     } else {
-      const goals = container.createDiv({ cls: "daily-hub-goals" });
+      const goals = goalsTile.createDiv({ cls: "daily-hub-goals" });
       const progressByGoal = new Map(
         applyScheduleToProgress(this.plugin.data.goals, progress, this.selectedDateKey)
           .map((item) => [item.goalId, item])
@@ -402,9 +402,14 @@ export class DailyHubView extends ItemView {
       }
     }
 
-    this.renderWeek(container, week, weeklyAnalytics);
-    this.renderActivityTimeline(container, week);
-    this.longTermSection = container.createDiv({ cls: "daily-hub-long-term" });
+    this.renderWeek(bento, week, weeklyAnalytics);
+    this.renderActivityChart(bento, week);
+    const breakdown = bento.createDiv({ cls: "daily-hub-bento-breakdown daily-hub-panel" });
+    const breakdownHeading = breakdown.createDiv({ cls: "daily-hub-section-heading" });
+    breakdownHeading.createEl("div", { text: "This week", cls: "daily-hub-kicker" });
+    breakdownHeading.createEl("h2", { text: "Goal breakdown", cls: "daily-hub-section-title" });
+    this.renderGoalBreakdown(breakdown, weeklyAnalytics.goals, false);
+    this.longTermSection = bento.createDiv({ cls: "daily-hub-long-term" });
     this.renderLongTermContent(today);
     this.updateGoalRuntimeStates();
     this.syncLivePolling(status.kind === "connected" && selectedAvailable);
@@ -417,7 +422,8 @@ export class DailyHubView extends ItemView {
   }
 
   private renderDateNavigator(container: HTMLElement, today: Date): void {
-    const wrapper = container.createDiv({ cls: "daily-hub-date-navigation" });
+    const tile = container.createDiv({ cls: "daily-hub-bento-navigation" });
+    const wrapper = tile.createDiv({ cls: "daily-hub-date-navigation" });
     const previous = wrapper.createEl("button", {
       cls: "daily-hub-date-arrow daily-hub-icon-button",
       attr: { "aria-label": "Previous week", title: "Previous week" }
@@ -451,7 +457,7 @@ export class DailyHubView extends ItemView {
     next.addEventListener("click", () => this.selectDate(toLocalDateKey(addLocalDays(this.selectedDateKey, 7))));
 
     if (!isToday(this.selectedDateKey, today)) {
-      const todayButton = container.createEl("button", { text: "Today", cls: "daily-hub-today-button" });
+      const todayButton = tile.createEl("button", { text: "Today", cls: "daily-hub-today-button" });
       todayButton.addEventListener("click", () => this.selectDate(toLocalDateKey(today)));
     }
   }
@@ -470,7 +476,7 @@ export class DailyHubView extends ItemView {
     selectedAvailable: boolean,
     future: boolean
   ): void {
-    const section = container.createDiv({ cls: "daily-hub-remaining" });
+    const section = container.createDiv({ cls: "daily-hub-remaining daily-hub-bento-plan" });
     const heading = isToday(this.selectedDateKey, today)
       ? "Today Plan"
       : `Plan for ${new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date)}`;
@@ -546,7 +552,7 @@ export class DailyHubView extends ItemView {
     week: WeekDayData[],
     analytics: WeeklyAnalytics
   ): void {
-    const section = container.createDiv({ cls: "daily-hub-week daily-hub-panel" });
+    const section = container.createDiv({ cls: "daily-hub-week daily-hub-panel daily-hub-bento-week" });
     const heading = section.createDiv({ cls: "daily-hub-section-heading" });
     heading.createEl("div", { text: "Progress", cls: "daily-hub-kicker" });
     heading.createEl("h2", { text: "This week", cls: "daily-hub-section-title" });
@@ -615,166 +621,238 @@ export class DailyHubView extends ItemView {
       button.addEventListener("click", () => this.selectDate(day.key));
     }
 
-    this.renderGoalBreakdown(section, analytics.goals);
   }
 
-  private renderActivityTimeline(container: HTMLElement, week: WeekDayData[]): void {
+  private renderActivityChart(container: HTMLElement, week: WeekDayData[]): void {
     const goals = this.plugin.data.goals.filter((goal) => goal.enabled);
-    const timeline = buildActivityTimeline(goals, week.map((day) => ({
+    const series = buildActivityChartSeries(goals, week.map((day) => ({
       dateKey: day.key,
-      activity: day.activity
+      future: day.future,
+      progress: day.progress
     })));
-    const section = container.createDiv({ cls: "daily-hub-timeline daily-hub-panel" });
+    const section = container.createDiv({ cls: "daily-hub-line-chart-card daily-hub-panel daily-hub-bento-chart" });
     const heading = section.createDiv({ cls: "daily-hub-section-heading" });
-    heading.createEl("div", { text: "When you worked", cls: "daily-hub-kicker" });
-    heading.createEl("h2", { text: "Activity timeline", cls: "daily-hub-section-title" });
+    heading.createEl("div", { text: "Activity", cls: "daily-hub-kicker" });
+    heading.createEl("h2", { text: "Activity over time", cls: "daily-hub-section-title" });
 
-    const activeGoalIds = new Set(timeline.flatMap((day) => day.segments.map((segment) => segment.goalId)));
-    const legendGoals = goals.filter((goal) => activeGoalIds.has(goal.id));
-    if (legendGoals.length > 0) {
-      const legend = section.createDiv({
-        cls: "daily-hub-timeline-legend",
-        attr: { role: "list", "aria-label": "Timeline goal colors" }
+    const maximumSeconds = getMaximumChartSeconds(series);
+    if (maximumSeconds === 0) {
+      section.createEl("p", {
+        text: "No tracked activity for this period.",
+        cls: "daily-hub-chart-empty daily-hub-muted"
       });
-      for (const goal of legendGoals) {
-        const item = legend.createDiv({ cls: "daily-hub-timeline-legend-item", attr: { role: "listitem" } });
-        const swatch = item.createSpan({ cls: "daily-hub-timeline-swatch", attr: { "aria-hidden": "true" } });
-        swatch.style.setProperty("--dh-goal-color", getGoalColor(goal.id));
-        item.createSpan({ text: goal.name });
-      }
-    } else {
-      section.createEl("p", { text: "No tracked activity this week.", cls: "daily-hub-muted" });
+      return;
     }
 
-    const scroll = section.createDiv({ cls: "daily-hub-timeline-scroll" });
-    const chart = scroll.createDiv({
-      cls: "daily-hub-timeline-chart",
-      attr: { role: "group", "aria-label": "Goal activity by day and time" }
+    const legend = section.createDiv({
+      cls: "daily-hub-chart-legend",
+      attr: { role: "list", "aria-label": "Goal activity colors" }
     });
-    const axis = chart.createDiv({ cls: "daily-hub-timeline-axis", attr: { "aria-hidden": "true" } });
-    axis.createSpan({ cls: "daily-hub-timeline-axis-spacer" });
-    const hours = axis.createDiv({ cls: "daily-hub-timeline-hours" });
-    for (let hour = 0; hour < 24; hour += 2) {
-      hours.createSpan({ text: String(hour).padStart(2, "0") });
+    for (const item of series) {
+      const legendItem = legend.createDiv({ cls: "daily-hub-chart-legend-item", attr: { role: "listitem" } });
+      const swatch = legendItem.createSpan({ cls: "daily-hub-chart-swatch", attr: { "aria-hidden": "true" } });
+      swatch.style.setProperty("--dh-goal-color", item.color);
+      legendItem.createSpan({ text: item.goalName });
     }
 
-    const goalsById = new Map(goals.map((goal) => [goal.id, goal]));
-    const weekdayFormatter = new Intl.DateTimeFormat(undefined, { weekday: "short" });
+    const width = 800;
+    const height = 320;
+    const left = 62;
+    const right = 18;
+    const top = 16;
+    const bottom = 48;
+    const plotWidth = width - left - right;
+    const plotHeight = height - top - bottom;
+    const scale = getNiceTimeScale(maximumSeconds);
+    const scroll = section.createDiv({ cls: "daily-hub-line-chart-scroll" });
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "daily-hub-line-chart");
+    svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label", "Goal activity over the selected week");
+    scroll.appendChild(svg);
+
+    const createSvg = <K extends keyof SVGElementTagNameMap>(
+      tag: K,
+      attributes: Record<string, string>
+    ): SVGElementTagNameMap[K] => {
+      const element = document.createElementNS("http://www.w3.org/2000/svg", tag);
+      for (const [name, value] of Object.entries(attributes)) element.setAttribute(name, value);
+      svg.appendChild(element);
+      return element;
+    };
+    const xPosition = (index: number): number => left + (
+      week.length <= 1 ? plotWidth / 2 : (index / (week.length - 1)) * plotWidth
+    );
+    const yPosition = (seconds: number): number => top + plotHeight
+      - (seconds / scale.maximumSeconds) * plotHeight;
+
+    const yTitle = createSvg("text", {
+      x: String(left), y: "10",
+      class: "daily-hub-chart-axis-title", "text-anchor": "start"
+    });
+    yTitle.textContent = "Hours";
+
+    for (const tick of scale.ticks) {
+      const y = yPosition(tick);
+      createSvg("line", {
+        x1: String(left), y1: String(y), x2: String(width - right), y2: String(y),
+        class: "daily-hub-chart-grid-line"
+      });
+      const label = createSvg("text", {
+        x: String(left - 10), y: String(y + 4),
+        class: "daily-hub-chart-axis-label", "text-anchor": "end"
+      });
+      label.textContent = formatChartDuration(tick);
+    }
+
+    const dayFormatter = new Intl.DateTimeFormat(undefined, { weekday: "short", day: "numeric" });
     const fullDateFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: "full" });
-    const segmentDateFormatter = new Intl.DateTimeFormat(undefined, {
-      weekday: "short",
-      month: "short",
-      day: "numeric"
-    });
-    const timeFormatter = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" });
-    timeline.forEach((day, index) => {
-      const sourceDay = week[index];
-      if (sourceDay === undefined) return;
-      const row = chart.createDiv({ cls: `daily-hub-timeline-row${day.available ? "" : " is-unavailable"}` });
-      const dayLabel = row.createDiv({ cls: "daily-hub-timeline-day" });
-      dayLabel.createEl("strong", {
-        text: weekdayFormatter.format(sourceDay.date)
+    week.forEach((day, index) => {
+      const x = xPosition(index);
+      createSvg("line", {
+        x1: String(x), y1: String(top), x2: String(x), y2: String(top + plotHeight),
+        class: "daily-hub-chart-grid-line is-vertical"
       });
-      dayLabel.createSpan({ text: String(sourceDay.date.getDate()) });
-      const track = row.createDiv({
-        cls: "daily-hub-timeline-track",
-        attr: {
-          role: "group",
-          "aria-label": fullDateFormatter.format(sourceDay.date)
+      const label = createSvg("text", {
+        x: String(x), y: String(height - 17),
+        class: `daily-hub-chart-axis-label${day.progress === undefined ? " is-missing" : ""}`,
+        "text-anchor": "middle"
+      });
+      label.textContent = dayFormatter.format(day.date);
+    });
+
+    for (const item of series) {
+      let continuing = false;
+      const pathParts: string[] = [];
+      item.points.forEach((point, index) => {
+        if (point.seconds === null) {
+          continuing = false;
+          return;
         }
+        const x = xPosition(index);
+        const y = yPosition(point.seconds);
+        pathParts.push(`${continuing ? "L" : "M"} ${x} ${y}`);
+        continuing = true;
       });
-      if (!day.available) {
-        track.createSpan({
-          text: sourceDay.future ? "Future" : "Unavailable",
-          cls: "daily-hub-timeline-empty"
+      const path = createSvg("path", {
+        d: pathParts.join(" "),
+        class: "daily-hub-chart-series",
+        fill: "none"
+      });
+      path.style.setProperty("--dh-goal-color", item.color);
+
+      item.points.forEach((point, index) => {
+        if (point.seconds === null) return;
+        const day = week[index];
+        if (day === undefined) return;
+        const duration = formatDuration(point.seconds);
+        const dateLabel = fullDateFormatter.format(day.date);
+        const pointLabel = `${item.goalName}, ${dateLabel}, ${duration}`;
+        const circle = createSvg("circle", {
+          cx: String(xPosition(index)),
+          cy: String(yPosition(point.seconds)),
+          r: "4",
+          class: "daily-hub-chart-point",
+          tabindex: "0",
+          role: "img",
+          "aria-label": pointLabel
         });
-      }
-      for (const segment of day.segments) {
-        const goal = goalsById.get(segment.goalId);
-        if (goal === undefined) continue;
-        const position = getTimelineSegmentPosition(segment, day.dateKey);
-        const start = new Date(segment.startMs);
-        const end = new Date(segment.endMs);
-        const dateLabel = segmentDateFormatter.format(sourceDay.date);
-        const duration = formatDuration((segment.endMs - segment.startMs) / 1000);
-        const title = `${goal.name}\n${dateLabel}\n${timeFormatter.format(start)}–${timeFormatter.format(end)}\n${duration}`;
-        const segmentEl = track.createEl("button", {
-          cls: "daily-hub-timeline-segment",
-          attr: {
-            type: "button",
-            title,
-            "aria-label": `${goal.name}, ${dateLabel}, ${timeFormatter.format(start)} to ${timeFormatter.format(end)}, ${duration}`
-          }
-        });
-        segmentEl.style.setProperty("--dh-segment-left", `${position.leftPercent}%`);
-        segmentEl.style.setProperty("--dh-segment-width", `${position.widthPercent}%`);
-        segmentEl.style.setProperty("--dh-goal-color", getGoalColor(goal.id));
-      }
-    });
+        circle.style.setProperty("--dh-goal-color", item.color);
+        const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
+        title.textContent = `${item.goalName}\n${dateLabel}\n${duration}`;
+        circle.appendChild(title);
+      });
+    }
   }
 
   private renderLongTermContent(today: Date): void {
     const section = this.longTermSection;
     if (section === undefined) return;
     section.empty();
-    section.addClass("daily-hub-panel");
-    const heading = section.createDiv({ cls: "daily-hub-section-heading" });
-    heading.createEl("div", { text: "Ending today", cls: "daily-hub-kicker" });
-    heading.createEl("h2", { text: "Last 30 days", cls: "daily-hub-section-title" });
 
     const enabledGoals = this.plugin.data.goals.filter((goal) => goal.enabled);
     if (enabledGoals.length === 0) {
-      section.createEl("p", { text: "Add goals to see long-term analytics.", cls: "daily-hub-muted" });
+      const empty = section.createDiv({ cls: "daily-hub-analytics-notice daily-hub-panel" });
+      empty.createEl("p", { text: "Add goals to see long-term analytics.", cls: "daily-hub-muted" });
       return;
     }
 
     const analytics = this.getLongTermAnalytics(toLocalDateKey(today));
     if (analytics === undefined) {
-      section.createEl("p", { text: "Loading analytics…", cls: "daily-hub-muted", attr: { role: "status" } });
+      const loading = section.createDiv({ cls: "daily-hub-analytics-notice daily-hub-panel" });
+      loading.createEl("p", { text: "Loading analytics…", cls: "daily-hub-muted", attr: { role: "status" } });
       return;
     }
     if (analytics.availableDays === 0) {
-      section.createEl("p", { text: "30-day analytics unavailable", cls: "daily-hub-muted", attr: { role: "status" } });
-      this.renderHeatmap(section, analytics);
+      const unavailable = section.createDiv({ cls: "daily-hub-analytics-notice daily-hub-panel" });
+      unavailable.createEl("p", { text: "30-day analytics unavailable", cls: "daily-hub-muted", attr: { role: "status" } });
+      const heatmap = this.createAnalyticsTile(section, "Daily completion", "Last 30 days", "daily-hub-bento-heatmap");
+      this.renderHeatmap(heatmap, analytics, false);
+      const consistency = this.createAnalyticsTile(section, "Goal consistency", "Last 30 days", "daily-hub-bento-consistency");
+      this.renderGoalConsistency(consistency, analytics.goals, false);
       return;
     }
 
-    const summary = section.createDiv({
-      cls: "daily-hub-long-term-summary",
-      attr: { "aria-label": "Last 30 days summary" }
-    });
-    this.renderLongTermMetric(summary, formatDuration(analytics.totalSeconds), "studied");
+    this.renderLongTermMetric(section, formatDuration(analytics.totalSeconds), "Total");
     this.renderLongTermMetric(
-      summary,
+      section,
       analytics.averageSeconds === undefined ? "—" : formatDuration(analytics.averageSeconds),
-      "daily average"
+      "Daily average"
     );
-    this.renderLongTermMetric(summary, String(analytics.activeDays), "active days");
+    this.renderLongTermMetric(section, String(analytics.activeDays), "Active days");
     this.renderLongTermMetric(
-      summary,
+      section,
       analytics.completionRate === undefined ? "—" : `${Math.round(analytics.completionRate * 100)}%`,
-      "goal completion"
+      "Goal completion"
     );
 
+    const heatmap = this.createAnalyticsTile(
+      section,
+      "Daily completion",
+      "Last 30 days",
+      "daily-hub-bento-heatmap"
+    );
     if (analytics.availableDays < LONG_TERM_DAYS) {
-      section.createEl("p", {
+      heatmap.createEl("p", {
         text: `Partial data: ${analytics.availableDays} of ${LONG_TERM_DAYS} days available`,
         cls: "daily-hub-muted"
       });
     }
-
-    this.renderHeatmap(section, analytics);
-    this.renderGoalConsistency(section, analytics.goals);
+    this.renderHeatmap(heatmap, analytics, false);
+    const consistency = this.createAnalyticsTile(
+      section,
+      "Goal consistency",
+      "Last 30 days",
+      "daily-hub-bento-consistency"
+    );
+    this.renderGoalConsistency(consistency, analytics.goals, false);
   }
 
   private renderLongTermMetric(container: HTMLElement, value: string, label: string): void {
-    const metric = container.createDiv({ cls: "daily-hub-summary-item" });
+    const metric = container.createDiv({ cls: "daily-hub-bento-metric daily-hub-panel" });
+    metric.createEl("span", { text: "Last 30 days", cls: "daily-hub-kicker" });
     metric.createEl("strong", { text: value });
     metric.createEl("span", { text: label });
   }
 
-  private renderHeatmap(container: HTMLElement, analytics: RangeAnalytics): void {
-    container.createEl("h3", { text: "Daily completion", cls: "daily-hub-subsection-title" });
+  private createAnalyticsTile(
+    container: HTMLElement,
+    title: string,
+    kicker: string,
+    className: string
+  ): HTMLElement {
+    const tile = container.createDiv({ cls: `${className} daily-hub-panel` });
+    const heading = tile.createDiv({ cls: "daily-hub-section-heading" });
+    heading.createEl("div", { text: kicker, cls: "daily-hub-kicker" });
+    heading.createEl("h2", { text: title, cls: "daily-hub-section-title" });
+    return tile;
+  }
+
+  private renderHeatmap(container: HTMLElement, analytics: RangeAnalytics, includeHeading = true): void {
+    if (includeHeading) {
+      container.createEl("h3", { text: "Daily completion", cls: "daily-hub-subsection-title" });
+    }
     const scroll = container.createDiv({ cls: "daily-hub-heatmap-scroll" });
     const heatmap = scroll.createDiv({ cls: "daily-hub-heatmap", attr: { "aria-label": "30-day goal completion heatmap" } });
     for (const day of analytics.days) {
@@ -811,8 +889,14 @@ export class DailyHubView extends ItemView {
     }
   }
 
-  private renderGoalConsistency(container: HTMLElement, goals: GoalRangeStats[]): void {
-    container.createEl("h3", { text: "Goal consistency", cls: "daily-hub-subsection-title" });
+  private renderGoalConsistency(
+    container: HTMLElement,
+    goals: GoalRangeStats[],
+    includeHeading = true
+  ): void {
+    if (includeHeading) {
+      container.createEl("h3", { text: "Goal consistency", cls: "daily-hub-subsection-title" });
+    }
     const list = container.createDiv({ cls: "daily-hub-consistency" });
     for (const goal of goals) {
       const card = list.createDiv({ cls: "daily-hub-consistency-card" });
@@ -885,8 +969,14 @@ export class DailyHubView extends ItemView {
     );
   }
 
-  private renderGoalBreakdown(container: HTMLElement, goals: GoalWeekStats[]): void {
-    container.createEl("h3", { text: "Goal breakdown", cls: "daily-hub-subsection-title" });
+  private renderGoalBreakdown(
+    container: HTMLElement,
+    goals: GoalWeekStats[],
+    includeHeading = true
+  ): void {
+    if (includeHeading) {
+      container.createEl("h3", { text: "Goal breakdown", cls: "daily-hub-subsection-title" });
+    }
     const breakdown = container.createDiv({ cls: "daily-hub-goal-breakdown" });
     const maximum = Math.max(...goals.map((goal) => goal.totalSeconds), 1);
     for (const goal of goals) {
@@ -905,7 +995,7 @@ export class DailyHubView extends ItemView {
 
   private renderStatus(container: HTMLElement, status: ActivityWatchStatus): void {
     const statusBar = container.createDiv({
-      cls: `daily-hub-status is-${status.kind}`,
+      cls: `daily-hub-status daily-hub-bento-status is-${status.kind}`,
       attr: { role: "status" }
     });
     const statusText = statusBar.createDiv({ cls: "daily-hub-status-copy" });
@@ -1029,7 +1119,7 @@ export class DailyHubView extends ItemView {
 
       const progressRatio = progress.progressRatio ?? 0;
       progressShell = content.createDiv({ cls: "daily-hub-progress-shell" });
-      progressShell.style.setProperty("--dh-progress-ratio", String(progressRatio));
+      progressShell.style.setProperty("--dh-progress-ratio", String(Math.max(0, Math.min(1, progressRatio))));
       const bar = progressShell.createDiv({
         cls: "daily-hub-goal-progress",
         attr: {

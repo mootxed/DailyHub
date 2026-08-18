@@ -332,7 +332,7 @@
   display: grid;
   gap: 3px;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  margin-top: var(--size-4-4);
+  margin: 0;
   padding: 4px;
 }
 
@@ -416,12 +416,6 @@
 }
 
 /* Day overview and plan */
-.daily-hub-primary-grid {
-  display: grid;
-  gap: var(--size-4-4);
-  margin-top: var(--size-4-4);
-}
-
 .daily-hub-day-overview,
 .daily-hub-remaining {
   min-width: 0;
@@ -438,8 +432,7 @@
 }
 
 .daily-hub-summary,
-.daily-hub-week-summary,
-.daily-hub-long-term-summary {
+.daily-hub-week-summary {
   display: flex;
   flex-wrap: wrap;
   gap: var(--size-4-6);
@@ -502,7 +495,9 @@
 
 .daily-hub-progress-shell {
   color: var(--dh-brand-bright);
-  padding-top: 9px;
+  isolation: isolate;
+  overflow: visible;
+  padding-top: 18px;
   position: relative;
 }
 
@@ -511,7 +506,9 @@
   border-radius: 3px;
   height: 8px;
   overflow: hidden;
+  position: relative;
   width: 100%;
+  z-index: 1;
 }
 
 .daily-hub-goal-progress-fill {
@@ -525,19 +522,20 @@
 }
 
 .daily-hub-progress-emitter {
-  bottom: 4px;
   height: 1px;
-  left: clamp(8px, calc(var(--dh-progress-ratio) * 100%), calc(100% - 8px));
+  left: clamp(12px, calc(var(--dh-progress-ratio) * 100%), calc(100% - 12px));
   opacity: 0;
   pointer-events: none;
   position: absolute;
+  top: 21px;
   transition: opacity 120ms ease;
   visibility: hidden;
   width: 1px;
-  z-index: 2;
+  z-index: 3;
 }
 
 .daily-hub-progress-shell.is-live .daily-hub-progress-emitter {
+  filter: drop-shadow(0 0 3px currentColor);
   opacity: 1;
   visibility: visible;
 }
@@ -740,7 +738,7 @@
   box-shadow: var(--dh-shadow-sm);
   display: grid;
   min-width: 0;
-  overflow: hidden;
+  overflow: visible;
   padding: var(--size-4-4) var(--size-4-4) var(--size-4-3) calc(var(--size-4-4) + 4px);
   position: relative;
   transition: border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
@@ -917,10 +915,8 @@
 .daily-hub-pause-button.is-resume { color: var(--dh-brand-bright); }
 
 /* Week and breakdown */
-.daily-hub-week,
-.daily-hub-timeline,
-.daily-hub-long-term {
-  margin-top: var(--size-4-6);
+.daily-hub-week {
+  margin: 0;
   padding: var(--size-4-5);
 }
 
@@ -1004,138 +1000,7 @@
   min-width: 0;
 }
 
-/* Weekly activity timeline */
-.daily-hub-timeline .daily-hub-section-heading {
-  margin-top: 0;
-}
-
-.daily-hub-timeline-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px var(--size-4-3);
-  margin-bottom: var(--size-4-3);
-}
-
-.daily-hub-timeline-legend-item {
-  align-items: center;
-  display: inline-flex;
-  font-size: var(--font-ui-small);
-  gap: 6px;
-}
-
-.daily-hub-timeline-swatch {
-  background: var(--dh-goal-color);
-  border: 1px solid color-mix(in srgb, var(--dh-goal-color) 76%, var(--dh-text));
-  border-radius: 3px;
-  height: 10px;
-  width: 10px;
-}
-
-.daily-hub-timeline-scroll {
-  overflow-x: auto;
-  padding: 2px 2px var(--size-4-2);
-}
-
-.daily-hub-timeline-chart {
-  display: grid;
-  gap: 4px;
-  min-width: 720px;
-}
-
-.daily-hub-timeline-axis,
-.daily-hub-timeline-row {
-  display: grid;
-  gap: var(--size-4-2);
-  grid-template-columns: 56px minmax(640px, 1fr);
-}
-
-.daily-hub-timeline-axis {
-  align-items: end;
-}
-
-.daily-hub-timeline-hours {
-  color: var(--dh-text-muted);
-  display: grid;
-  font-size: 10px;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
-  line-height: 1;
-}
-
-.daily-hub-timeline-day {
-  align-items: baseline;
-  display: flex;
-  font-size: var(--font-ui-small);
-  gap: 4px;
-  justify-content: flex-end;
-  padding-top: 5px;
-}
-
-.daily-hub-timeline-day span {
-  color: var(--dh-text-muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.daily-hub-timeline-track {
-  background-color: var(--dh-surface-muted);
-  background-image: linear-gradient(to right, var(--dh-border) 1px, transparent 1px);
-  background-size: calc(100% / 12) 100%;
-  border: 1px solid var(--dh-border);
-  border-radius: var(--dh-radius-sm);
-  height: 28px;
-  overflow: hidden;
-  position: relative;
-}
-
-.daily-hub-timeline-row.is-unavailable .daily-hub-timeline-track {
-  background-color: transparent;
-  border-style: dashed;
-}
-
-.daily-hub-timeline-empty {
-  color: var(--dh-text-muted);
-  font-size: 10px;
-  left: 6px;
-  line-height: 26px;
-  position: absolute;
-  top: 0;
-}
-
-.daily-hub-timeline-segment {
-  background: var(--dh-goal-color) !important;
-  border: 1px solid color-mix(in srgb, var(--dh-goal-color) 72%, var(--dh-text)) !important;
-  border-radius: 3px;
-  box-shadow: none !important;
-  height: 20px !important;
-  left: var(--dh-segment-left);
-  min-height: 0 !important;
-  min-width: 2px;
-  padding: 0 !important;
-  position: absolute;
-  top: 3px;
-  transition: filter 140ms ease, transform 140ms ease;
-  width: max(var(--dh-segment-width), 2px);
-}
-
-.daily-hub-timeline-segment:hover,
-.daily-hub-timeline-segment:focus-visible {
-  filter: brightness(1.12);
-  transform: translateY(-1px);
-  z-index: 2;
-}
-
 /* Long-term analytics and heatmap */
-.daily-hub-long-term-summary {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  margin: var(--size-4-4) 0;
-}
-
-.daily-hub-long-term-summary .daily-hub-summary-item {
-  background: var(--dh-surface-muted);
-  border-radius: var(--dh-radius-sm);
-  padding: var(--size-4-3);
-}
-
 .daily-hub-heatmap-scroll {
   overflow-x: auto;
   padding: 2px 2px var(--size-4-2);
@@ -1467,14 +1332,189 @@
   border-color: var(--dh-border);
 }
 
-/* Responsive dashboard layouts */
-@container (min-width: 720px) {
-  .daily-hub-primary-grid {
-    grid-template-columns: minmax(0, 1.25fr) minmax(300px, .85fr);
-  }
+/* Bento dashboard and activity line chart */
+.daily-hub-bento {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1fr);
 }
 
-@container (min-width: 1040px) {
+.daily-hub-bento > *,
+.daily-hub-long-term > * {
+  min-width: 0;
+}
+
+.daily-hub-bento-goals,
+.daily-hub-bento-breakdown,
+.daily-hub-line-chart-card,
+.daily-hub-bento-heatmap,
+.daily-hub-bento-consistency {
+  padding: var(--size-4-5);
+}
+
+.daily-hub-bento-goals > .daily-hub-section-heading,
+.daily-hub-bento-breakdown > .daily-hub-section-heading,
+.daily-hub-line-chart-card > .daily-hub-section-heading,
+.daily-hub-bento-heatmap > .daily-hub-section-heading,
+.daily-hub-bento-consistency > .daily-hub-section-heading {
+  margin-top: 0;
+}
+
+.daily-hub-long-term {
+  display: contents;
+}
+
+.daily-hub-analytics-notice {
+  padding: var(--size-4-4);
+}
+
+.daily-hub-analytics-notice p {
+  margin: 0;
+}
+
+.daily-hub-bento-metric {
+  display: grid;
+  gap: 3px;
+  padding: var(--size-4-4);
+}
+
+.daily-hub-bento-metric strong {
+  font-size: clamp(20px, 2.2cqi, 26px);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.daily-hub-bento-metric > span:last-child {
+  color: var(--dh-text-muted);
+  font-size: var(--font-ui-small);
+}
+
+.daily-hub-chart-empty {
+  margin: 0;
+  padding: var(--size-4-3) 0 var(--size-4-2);
+}
+
+.daily-hub-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px var(--size-4-3);
+  margin-bottom: var(--size-4-2);
+}
+
+.daily-hub-chart-legend-item {
+  align-items: center;
+  display: inline-flex;
+  font-size: var(--font-ui-small);
+  gap: 6px;
+}
+
+.daily-hub-chart-swatch {
+  background: var(--dh-goal-color);
+  border: 1px solid color-mix(in srgb, var(--dh-goal-color) 76%, var(--dh-text));
+  border-radius: 50%;
+  height: 9px;
+  width: 9px;
+}
+
+.daily-hub-line-chart-scroll {
+  overflow-x: auto;
+  padding: 2px;
+}
+
+.daily-hub-line-chart {
+  display: block;
+  height: auto;
+  min-width: 620px;
+  overflow: visible;
+  width: 100%;
+}
+
+.daily-hub-chart-grid-line {
+  stroke: color-mix(in srgb, var(--dh-border) 72%, transparent);
+  stroke-width: 1;
+}
+
+.daily-hub-chart-grid-line.is-vertical {
+  stroke: color-mix(in srgb, var(--dh-border) 48%, transparent);
+}
+
+.daily-hub-chart-axis-label {
+  fill: var(--dh-text-muted);
+  font-family: var(--font-interface);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.daily-hub-chart-axis-title {
+  fill: var(--dh-text-muted);
+  font-family: var(--font-interface);
+  font-size: 10px;
+  font-weight: var(--font-semibold);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.daily-hub-chart-axis-label.is-missing {
+  fill: var(--text-faint);
+  font-style: italic;
+}
+
+.daily-hub-chart-series {
+  stroke: var(--dh-goal-color);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.daily-hub-chart-point {
+  fill: var(--dh-surface);
+  outline: none;
+  stroke: var(--dh-goal-color);
+  stroke-width: 2.5;
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: fill 120ms ease, transform 120ms ease;
+  vector-effect: non-scaling-stroke;
+}
+
+.daily-hub-chart-point:hover,
+.daily-hub-chart-point:focus-visible {
+  fill: var(--dh-goal-color);
+  stroke: var(--dh-surface);
+  transform: scale(1.35);
+}
+
+/* Responsive dashboard layouts */
+@container (min-width: 720px) {
+  .daily-hub-bento { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .daily-hub-bento-header,
+  .daily-hub-bento-navigation,
+  .daily-hub-bento-status,
+  .daily-hub-bento-chart,
+  .daily-hub-bento-breakdown,
+  .daily-hub-analytics-notice { grid-column: 1 / -1; }
+  .daily-hub-bento-day,
+  .daily-hub-bento-plan,
+  .daily-hub-bento-metric { grid-column: span 3; }
+  .daily-hub-bento-goals,
+  .daily-hub-bento-heatmap { grid-column: span 4; }
+  .daily-hub-bento-week,
+  .daily-hub-bento-consistency { grid-column: span 2; }
+}
+
+@container (min-width: 1100px) {
+  .daily-hub-bento { grid-template-columns: repeat(12, minmax(0, 1fr)); }
+  .daily-hub-bento-day { grid-column: span 7; }
+  .daily-hub-bento-plan { grid-column: span 5; }
+  .daily-hub-bento-goals,
+  .daily-hub-bento-chart,
+  .daily-hub-bento-heatmap { grid-column: span 8; }
+  .daily-hub-bento-week,
+  .daily-hub-bento-breakdown,
+  .daily-hub-bento-consistency { grid-column: span 4; }
+  .daily-hub-bento-metric { grid-column: span 3; }
+
   .daily-hub-goals {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1496,7 +1536,6 @@
 
   .daily-hub-status { align-items: stretch; flex-direction: column; }
 
-  .daily-hub-long-term-summary,
   .daily-hub-consistency {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1529,8 +1568,11 @@
   .daily-hub-day-overview,
   .daily-hub-remaining,
   .daily-hub-week,
-  .daily-hub-timeline,
-  .daily-hub-long-term { padding: var(--size-4-3); }
+  .daily-hub-bento-goals,
+  .daily-hub-bento-breakdown,
+  .daily-hub-line-chart-card,
+  .daily-hub-bento-heatmap,
+  .daily-hub-bento-consistency { padding: var(--size-4-3); }
 
   .daily-hub-summary,
   .daily-hub-week-summary { gap: var(--size-4-4); }
@@ -1540,7 +1582,6 @@
 
   .daily-hub-goal-heading { align-items: flex-start; flex-direction: column; }
 
-  .daily-hub-long-term-summary,
   .daily-hub-consistency { grid-template-columns: 1fr; }
 }
 
