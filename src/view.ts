@@ -120,6 +120,7 @@ export class DailyHubView extends ItemView {
   private todayActivity: DayActivity | undefined;
   private readonly hiddenChartGoalIds = new Set<string>();
   private readonly hiddenChartAppIds = new Set<string>();
+  private readonly hiddenChartSiteIds = new Set<string>();
   private readonly hiddenChartCategoryIds = new Set<string>();
   private activityChartMode: ActivityChartMode = "goals";
   private activityBreakdownMode: ActivityBreakdownMode = "apps";
@@ -305,7 +306,10 @@ export class DailyHubView extends ItemView {
     this.selectedActivityAvailable = selectedAvailable;
 
     const enabledGoals = this.plugin.data.goals.filter((goal) => goal.enabled);
-    const presentation = getDashboardPresentationState(enabledGoals.length);
+    const hasSiteActivity = week.some((day) => (
+      day.computerActivity.available && day.computerActivity.sites.length > 0
+    ));
+    const presentation = getDashboardPresentationState(enabledGoals.length, hasSiteActivity);
     if (!presentation.hasGoals && !this.noGoalDefaultsApplied) {
       this.activityChartMode = presentation.defaultActivityChartMode;
       this.heatmapMode = presentation.defaultHeatmapMode;
@@ -356,6 +360,7 @@ export class DailyHubView extends ItemView {
     connectionCopy.createEl("strong", { text: status.kind === "connected" ? "Connected" : "Offline" });
 
     this.renderDateNavigator(bento, today);
+    this.renderGoalsSection(bento, enabledGoals, progress, weeklyAnalytics, selectedAvailable, future);
 
     const overview = bento.createDiv({ cls: "daily-hub-day-overview daily-hub-bento-day" });
     const dayHeader = overview.createDiv({ cls: "daily-hub-day-header" });
@@ -441,39 +446,6 @@ export class DailyHubView extends ItemView {
       openDetails: (item, mode) => new ActivityDetailsModal(this.plugin, computerActivity, item, mode).open()
     });
 
-    const goalsTile = bento.createDiv({ cls: "daily-hub-bento-goals daily-hub-panel" });
-    const goalsHeader = goalsTile.createDiv({ cls: "daily-hub-section-heading" });
-    goalsHeader.createEl("div", { text: "Current actions", cls: "daily-hub-kicker" });
-    goalsHeader.createEl("h2", { text: "Goals", cls: "daily-hub-section-title" });
-
-    if (enabledGoals.length === 0) {
-      goalsTile.addClass("is-empty");
-      const empty = goalsTile.createDiv({ cls: "daily-hub-empty is-compact" });
-      empty.createEl("h3", { text: "No goals yet" });
-      empty.createEl("p", { text: "Track recurring activities automatically." });
-      const emptyAdd = empty.createEl("button", { cls: "daily-hub-primary-button" });
-      const emptyAddIcon = emptyAdd.createSpan({ attr: { "aria-hidden": "true" } });
-      setIcon(emptyAddIcon, "plus");
-      emptyAdd.createSpan({ text: "Add goal" });
-      emptyAdd.addEventListener("click", () => new GoalEditorModal(this.plugin).open());
-    } else {
-      const goals = goalsTile.createDiv({
-        cls: `daily-hub-goals${enabledGoals.length === 1 ? " is-single-goal" : ""}`
-      });
-      const progressByGoal = new Map(
-        applyScheduleToProgress(this.plugin.data.goals, progress, this.selectedDateKey)
-          .map((item) => [item.goalId, item])
-      );
-      const weekByGoal = new Map(weeklyAnalytics.goals.map((item) => [item.goalId, item]));
-      for (const goal of enabledGoals) {
-        const goalProgress = progressByGoal.get(goal.id);
-        const goalWeek = weekByGoal.get(goal.id);
-        if (goalProgress !== undefined && goalWeek !== undefined) {
-          this.renderGoal(goals, goal, goalProgress, goalWeek, selectedAvailable, future);
-        }
-      }
-    }
-
     renderDayTimelineView(bento, {
       activity: computerActivity,
       categories: this.plugin.data.activityCategories,
@@ -507,6 +479,49 @@ export class DailyHubView extends ItemView {
     const metric = container.createDiv({ cls: "daily-hub-hud-metric" });
     metric.createEl("strong", { text: value });
     metric.createEl("span", { text: label });
+  }
+
+  private renderGoalsSection(
+    container: HTMLElement,
+    enabledGoals: DailyGoal[],
+    progress: GoalProgress[],
+    weeklyAnalytics: WeeklyAnalytics,
+    selectedAvailable: boolean,
+    future: boolean
+  ): void {
+    const goalsTile = container.createDiv({ cls: "daily-hub-bento-goals daily-hub-panel" });
+    const goalsHeader = goalsTile.createDiv({ cls: "daily-hub-section-heading" });
+    goalsHeader.createEl("div", { text: "Current actions", cls: "daily-hub-kicker" });
+    goalsHeader.createEl("h2", { text: "Goals", cls: "daily-hub-section-title" });
+
+    if (enabledGoals.length === 0) {
+      goalsTile.addClass("is-empty");
+      const empty = goalsTile.createDiv({ cls: "daily-hub-empty is-compact" });
+      empty.createEl("h3", { text: "No goals yet" });
+      empty.createEl("p", { text: "Track recurring activities automatically." });
+      const emptyAdd = empty.createEl("button", { cls: "daily-hub-primary-button" });
+      const emptyAddIcon = emptyAdd.createSpan({ attr: { "aria-hidden": "true" } });
+      setIcon(emptyAddIcon, "plus");
+      emptyAdd.createSpan({ text: "Add goal" });
+      emptyAdd.addEventListener("click", () => new GoalEditorModal(this.plugin).open());
+      return;
+    }
+
+    const goals = goalsTile.createDiv({
+      cls: `daily-hub-goals${enabledGoals.length === 1 ? " is-single-goal" : ""}`
+    });
+    const progressByGoal = new Map(
+      applyScheduleToProgress(this.plugin.data.goals, progress, this.selectedDateKey)
+        .map((item) => [item.goalId, item])
+    );
+    const weekByGoal = new Map(weeklyAnalytics.goals.map((item) => [item.goalId, item]));
+    for (const goal of enabledGoals) {
+      const goalProgress = progressByGoal.get(goal.id);
+      const goalWeek = weekByGoal.get(goal.id);
+      if (goalProgress !== undefined && goalWeek !== undefined) {
+        this.renderGoal(goals, goal, goalProgress, goalWeek, selectedAvailable, future);
+      }
+    }
   }
 
   private renderDateNavigator(container: HTMLElement, today: Date): void {
@@ -757,7 +772,9 @@ export class DailyHubView extends ItemView {
       ? this.hiddenChartGoalIds
       : this.activityChartMode === "apps"
         ? this.hiddenChartAppIds
-        : this.hiddenChartCategoryIds;
+        : this.activityChartMode === "sites"
+          ? this.hiddenChartSiteIds
+          : this.hiddenChartCategoryIds;
     renderActivityChartView(container, {
       goals: this.plugin.data.goals.filter((goal) => goal.enabled),
       days: week,

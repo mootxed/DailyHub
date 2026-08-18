@@ -14,6 +14,7 @@ import type { DailyGoal, GoalProgress } from "../src/models";
 import { calculateDailyProgress } from "../src/progress";
 import { buildComputerActivityChartSeries } from "../src/view/activity-chart-view";
 import type { DailyComputerActivity } from "../src/activity-models";
+import { getIdentityColor } from "../src/identity-color";
 
 const DATE = "2026-08-18";
 
@@ -74,6 +75,83 @@ describe("activity line chart", () => {
     }))).toEqual([{ id: "Obsidian", points: [600, 300] }]);
     expect(buildComputerActivityChartSeries(days, "categories", []).map((series) => series.goalId))
       .toEqual(["development", "uncategorized"]);
+  });
+
+  it("builds top site series across days from foreground domain totals", () => {
+    const item = (id: string, seconds: number) => ({ id, label: id, seconds, percentage: 1 });
+    const computer = (
+      dateKey: string,
+      sites: DailyComputerActivity["sites"]
+    ): DailyComputerActivity => ({
+      dateKey,
+      available: true,
+      activeComputerSeconds: sites.reduce((sum, site) => sum + site.seconds, 0),
+      browserForegroundSeconds: sites.reduce((sum, site) => sum + site.seconds, 0),
+      segments: [],
+      applications: [item("Google Chrome", sites.reduce((sum, site) => sum + site.seconds, 0))],
+      sites,
+      categories: []
+    });
+    const days = [{
+      key: "2026-08-17",
+      date: new Date(2026, 7, 17),
+      future: false,
+      progress: undefined,
+      computerActivity: computer("2026-08-17", [item("github.com", 600), item("youtube.com", 300)])
+    }, {
+      key: "2026-08-18",
+      date: new Date(2026, 7, 18),
+      future: false,
+      progress: undefined,
+      computerActivity: computer("2026-08-18", [item("github.com", 120), item("youtube.com", 900)])
+    }];
+
+    const series = buildComputerActivityChartSeries(days, "sites", []);
+
+    expect(series.map((entry) => ({
+      id: entry.goalId,
+      points: entry.points.map((point) => point.seconds)
+    }))).toEqual([
+      { id: "youtube.com", points: [300, 900] },
+      { id: "github.com", points: [600, 120] }
+    ]);
+    expect(series.map((entry) => entry.goalId)).not.toContain("Google Chrome");
+    expect(series[0]?.color).toBe(getIdentityColor("site", "youtube.com"));
+  });
+
+  it("limits site activity to the five domains with the largest range totals", () => {
+    const sites = [1, 2, 3, 4, 5, 6].map((rank) => ({
+      id: `site-${rank}.example`,
+      label: `site-${rank}.example`,
+      seconds: rank * 60,
+      percentage: rank / 21
+    }));
+    const computer: DailyComputerActivity = {
+      dateKey: DATE,
+      available: true,
+      activeComputerSeconds: 21 * 60,
+      browserForegroundSeconds: 21 * 60,
+      segments: [],
+      applications: [],
+      sites,
+      categories: []
+    };
+
+    const series = buildComputerActivityChartSeries([{
+      key: DATE,
+      date: new Date(2026, 7, 18),
+      future: false,
+      progress: undefined,
+      computerActivity: computer
+    }], "sites", []);
+
+    expect(series.map((entry) => entry.goalId)).toEqual([
+      "site-6.example",
+      "site-5.example",
+      "site-4.example",
+      "site-3.example",
+      "site-2.example"
+    ]);
   });
 
   it("builds an independent daily series for each goal", () => {

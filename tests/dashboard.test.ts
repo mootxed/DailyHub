@@ -63,6 +63,12 @@ describe("dashboard summaries", () => {
       defaultHeatmapMode: "completion",
       showGoalAnalytics: true
     });
+    expect(getDashboardPresentationState(0, true)).toEqual({
+      hasGoals: false,
+      defaultActivityChartMode: "sites",
+      defaultHeatmapMode: "activity",
+      showGoalAnalytics: false
+    });
   });
 
   it("sums single-attribution study time and only enabled goal completion", () => {

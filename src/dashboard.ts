@@ -225,16 +225,19 @@ export function formatRemainingDuration(totalSeconds: number): string {
 
 export interface DashboardPresentationState {
   hasGoals: boolean;
-  defaultActivityChartMode: "goals" | "apps";
+  defaultActivityChartMode: "goals" | "apps" | "sites";
   defaultHeatmapMode: "completion" | "activity";
   showGoalAnalytics: boolean;
 }
 
-export function getDashboardPresentationState(enabledGoalCount: number): DashboardPresentationState {
+export function getDashboardPresentationState(
+  enabledGoalCount: number,
+  hasSiteActivity = false
+): DashboardPresentationState {
   const hasGoals = enabledGoalCount > 0;
   return {
     hasGoals,
-    defaultActivityChartMode: hasGoals ? "goals" : "apps",
+    defaultActivityChartMode: hasGoals ? "goals" : hasSiteActivity ? "sites" : "apps",
     defaultHeatmapMode: hasGoals ? "completion" : "activity",
     showGoalAnalytics: hasGoals
   };

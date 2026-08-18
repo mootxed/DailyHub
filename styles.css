@@ -775,7 +775,7 @@
 }
 
 .daily-hub-bento-goals.is-empty {
-  min-height: 118px;
+  min-height: 0;
 }
 
 .daily-hub-goals {
@@ -1526,14 +1526,13 @@
 
 .daily-hub-analytics-rail {
   align-self: start;
-  display: flex;
-  flex-direction: column;
+  display: grid;
   gap: 14px;
+  grid-template-columns: minmax(0, 1fr);
   min-width: 0;
 }
 
 .daily-hub-analytics-rail > * {
-  flex: 0 0 auto;
   height: auto;
 }
 
@@ -1973,8 +1972,8 @@ button.daily-hub-day-timeline-segment:focus-visible {
 
 .daily-hub-line-chart {
   display: block;
-  height: auto;
-  min-width: 620px;
+  height: clamp(260px, 32cqi, 340px);
+  min-width: 720px;
   overflow: visible;
   width: 100%;
 }
@@ -2069,8 +2068,12 @@ button.daily-hub-day-timeline-segment:focus-visible {
 }
 
 @container (min-width: 760px) {
-  .daily-hub-bento-analytics {
-    grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
+  .daily-hub-analytics-rail {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .daily-hub-bento.is-no-goals .daily-hub-analytics-rail {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

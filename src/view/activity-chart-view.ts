@@ -12,7 +12,7 @@ import type { ActivityCategory } from "../models";
 import type { DailyComputerActivity } from "../activity-models";
 import { getIdentityColor } from "../identity-color";
 
-export type ActivityChartMode = "goals" | "apps" | "categories";
+export type ActivityChartMode = "goals" | "apps" | "sites" | "categories";
 
 export interface ActivityChartDayView {
   key: string;
@@ -34,10 +34,14 @@ export interface ActivityChartViewOptions {
 
 export function buildComputerActivityChartSeries(
   days: ActivityChartDayView[],
-  mode: "apps" | "categories",
+  mode: "apps" | "sites" | "categories",
   categories: ActivityCategory[]
 ): ActivityChartSeries[] {
-  const source = (day: DailyComputerActivity) => mode === "apps" ? day.applications : day.categories;
+  const source = (day: DailyComputerActivity) => mode === "apps"
+    ? day.applications
+    : mode === "sites"
+      ? day.sites
+      : day.categories;
   const totals = new Map<string, { name: string; seconds: number }>();
   for (const day of days) {
     if (day.computerActivity?.available !== true) continue;
@@ -53,7 +57,7 @@ export function buildComputerActivityChartSeries(
       goalId: id,
       goalName: item.name,
       color: getIdentityColor(
-        mode === "apps" ? "app" : "category",
+        mode === "apps" ? "app" : mode === "sites" ? "site" : "category",
         id,
         mode === "categories" ? categoryById.get(id)?.colorIndex : undefined
       ),
@@ -72,8 +76,12 @@ export function buildComputerActivityChartSeries(
 
 export function renderActivityChartView(container: HTMLElement, options: ActivityChartViewOptions): void {
   const hasGoals = options.goals.some((goal) => goal.enabled);
-  const requestedMode = options.mode ?? (hasGoals ? "goals" : "apps");
-  const mode = !hasGoals && requestedMode === "goals" ? "apps" : requestedMode;
+  const hasSites = options.days.some((day) => (
+    day.computerActivity?.available === true && day.computerActivity.sites.length > 0
+  ));
+  const fallbackMode: ActivityChartMode = hasSites ? "sites" : "apps";
+  const requestedMode = options.mode ?? (hasGoals ? "goals" : fallbackMode);
+  const mode = !hasGoals && requestedMode === "goals" ? fallbackMode : requestedMode;
   const allSeries = mode === "goals"
     ? buildActivityChartSeries(options.goals, options.days.map((day) => ({
       dateKey: day.key,
@@ -88,11 +96,19 @@ export function renderActivityChartView(container: HTMLElement, options: Activit
   headingCopy.createEl("h2", { text: "Activity over time", cls: "daily-hub-section-title" });
   if (options.setMode !== undefined) {
     const tabs = heading.createDiv({ cls: "daily-hub-segmented-control", attr: { role: "tablist" } });
-    const modes: ActivityChartMode[] = hasGoals ? ["goals", "apps", "categories"] : ["apps", "categories"];
+    const modes: ActivityChartMode[] = hasGoals
+      ? ["goals", "apps", "sites", "categories"]
+      : ["apps", "sites", "categories"];
     for (const candidate of modes) {
       const selected = mode === candidate;
       const button = tabs.createEl("button", {
-        text: candidate === "goals" ? "Goals" : candidate === "apps" ? "Apps" : "Categories",
+        text: candidate === "goals"
+          ? "Goals"
+          : candidate === "apps"
+            ? "Apps"
+            : candidate === "sites"
+              ? "Sites"
+              : "Categories",
         cls: selected ? "is-selected" : "",
         attr: { type: "button", role: "tab", "aria-selected": String(selected) }
       });
@@ -109,6 +125,15 @@ export function renderActivityChartView(container: HTMLElement, options: Activit
   const render = (): void => {
     legend.empty();
     chart.empty();
+    if (allSeries.length === 0) {
+      chart.createEl("p", {
+        text: mode === "sites"
+          ? "No foreground website activity for this period."
+          : "No tracked activity for this period.",
+        cls: "daily-hub-chart-empty daily-hub-muted"
+      });
+      return;
+    }
     for (const item of allSeries) {
       const visible = !options.hiddenGoalIds.has(item.goalId);
       const button = legend.createEl("button", {
@@ -150,12 +175,12 @@ export function renderActivityChartView(container: HTMLElement, options: Activit
       return;
     }
 
-    const width = 800;
-    const height = 250;
-    const left = 62;
-    const right = 18;
-    const top = 18;
-    const bottom = 42;
+    const width = 1000;
+    const height = 320;
+    const left = 64;
+    const right = 22;
+    const top = 20;
+    const bottom = 46;
     const plotWidth = width - left - right;
     const plotHeight = height - top - bottom;
     const scale = getNiceTimeScale(getMaximumChartSeconds(series));
