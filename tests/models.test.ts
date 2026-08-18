@@ -87,6 +87,7 @@ describe("goal mutations", () => {
         completionNotifications: true
       },
       goals: [structuredClone(storedGoal), structuredClone(otherGoal)],
+      activityCategories: [],
       notifiedCompletions: [
         "2026-08-17:devops",
         "2026-08-18:devops",
@@ -109,6 +110,7 @@ describe("goal mutations", () => {
         completionNotifications: true
       },
       goals: [structuredClone(storedGoal)],
+      activityCategories: [],
       notifiedCompletions: ["2026-08-18:devops", "2026-08-18:missing"]
     };
     const before = structuredClone(data);

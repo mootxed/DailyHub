@@ -3,6 +3,74 @@ import { getHeatmapLevel, type GoalRangeStats, type RangeAnalytics } from "../an
 import { formatDuration } from "../dashboard";
 import { getLocalDateRange } from "../date";
 import type { DailyGoal } from "../models";
+import type { DailyComputerActivity } from "../activity-models";
+
+export function getActivityHeatmapLevel(seconds: number): number {
+  if (seconds <= 0) return 0;
+  if (seconds < 60 * 60) return 1;
+  if (seconds < 2 * 60 * 60) return 2;
+  if (seconds < 4 * 60 * 60) return 3;
+  if (seconds < 6 * 60 * 60) return 4;
+  return 5;
+}
+
+export function renderActivityHeatmap(
+  container: HTMLElement,
+  days: DailyComputerActivity[],
+  selectedDateKey: string,
+  selectDate: (dateKey: string) => void
+): void {
+  const scroll = container.createDiv({ cls: "daily-hub-heatmap-scroll" });
+  const firstDate = days[0] === undefined ? undefined : getLocalDateRange(days[0].dateKey).start;
+  const firstWeekday = firstDate === undefined ? 0 : (firstDate.getDay() + 6) % 7;
+  const weekCount = Math.max(1, Math.ceil((firstWeekday + days.length) / 7));
+  const heatmap = scroll.createDiv({
+    cls: "daily-hub-heatmap",
+    attr: {
+      role: "grid",
+      "aria-label": "30-day active computer time heatmap",
+      style: `--dh-heatmap-weeks: ${weekCount}`
+    }
+  });
+  ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].forEach((label, index) => {
+    heatmap.createEl("span", {
+      text: label,
+      cls: "daily-hub-heatmap-weekday",
+      attr: { style: `grid-column: 1; grid-row: ${index + 2}` }
+    });
+  });
+  const months = new Set<string>();
+  days.forEach((day, index) => {
+    const date = getLocalDateRange(day.dateKey).start;
+    const column = Math.floor((firstWeekday + index) / 7) + 2;
+    const month = `${date.getFullYear()}-${date.getMonth()}`;
+    if ((index === 0 || date.getDate() <= 7) && !months.has(month)) {
+      months.add(month);
+      heatmap.createEl("span", {
+        text: new Intl.DateTimeFormat(undefined, { month: "short" }).format(date),
+        cls: "daily-hub-heatmap-month",
+        attr: { style: `grid-column: ${column}; grid-row: 1` }
+      });
+    }
+    const row = ((date.getDay() + 6) % 7) + 2;
+    const selected = day.dateKey === selectedDateKey;
+    const level = getActivityHeatmapLevel(day.activeComputerSeconds);
+    const dateLabel = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date);
+    const state = day.available ? formatDuration(day.activeComputerSeconds) : "Unavailable";
+    const button = heatmap.createEl("button", {
+      text: day.available ? "" : "—",
+      cls: `daily-hub-heatmap-cell${day.available ? ` is-level-${level}` : " is-unavailable"}${selected ? " is-selected" : ""}`,
+      attr: {
+        role: "gridcell",
+        title: `${dateLabel}\n${state} active computer time`,
+        "aria-label": `${dateLabel}: ${state} active computer time`,
+        style: `grid-column: ${column}; grid-row: ${row}`,
+        ...(selected ? { "aria-current": "date" } : {})
+      }
+    });
+    button.addEventListener("click", () => selectDate(day.dateKey));
+  });
+}
 
 export function renderCalendarHeatmap(
   container: HTMLElement,

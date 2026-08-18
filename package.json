@@ -1,7 +1,7 @@
 {
   "name": "obsidian-daily-hub",
   "version": "0.1.0",
-  "description": "Automatic daily time goals in Obsidian powered by ActivityWatch",
+  "description": "Local Obsidian activity dashboard and automatic goals powered by ActivityWatch",
   "main": "main.js",
   "scripts": {
     "dev": "node esbuild.config.mjs",

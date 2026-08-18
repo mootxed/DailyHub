@@ -1,19 +1,31 @@
 # Daily Hub
 
-Daily Hub is a desktop [Obsidian](https://obsidian.md/) community plugin that tracks recurring daily time goals automatically. You define a minimum and one or more activity rules; Daily Hub reads local [ActivityWatch](https://activitywatch.net/) events and calculates the time for you. There is no manual timer and no active-goal switch.
+Daily Hub is a local personal activity dashboard for desktop [Obsidian](https://obsidian.md/). It uses [ActivityWatch](https://activitywatch.net/) to show where your computer time goes while also tracking recurring time goals automatically. There is no manual timer and no active-goal switch.
 
-> **Privacy:** Daily Hub works locally and does not send your activity history to third-party servers. Raw activity remains in ActivityWatch; the plugin stores only its settings, goals, and daily notification markers in Obsidian plugin data.
+> **Privacy:** Daily Hub works locally and does not send your activity history to third-party servers. Raw URL, window-title, application, and AFK history remains in ActivityWatch. The plugin stores only settings, category rules, goals, and daily notification markers in Obsidian plugin data.
+
+## Computer activity vs Goal tracking
+
+Daily Hub intentionally presents two independent measurements:
+
+- **Computer activity** is the mutually exclusive, non-AFK foreground-window timeline. One wall-clock second belongs to at most one foreground application. Browser watcher data can add a domain only while its matching browser is foreground; it never creates parallel time.
+- **Goal tracking** keeps the existing goal-specific attribution model. A URL goal may continue from the browser watcher's current tab while Obsidian or another application is foreground, and a Primary rule may explicitly count while AFK.
+
+These totals can overlap, but neither is a subset or percentage of the other. For example, 30 minutes with Obsidian foreground and a passive course URL active can produce 30 minutes of Obsidian computer activity and 30 minutes for the course goal. Daily Hub does not add those values into one total or derive a “productivity score” from them.
 
 ## Dashboard
 
 - A dense, responsive Habitica-inspired Bento dashboard with live progress bars, remaining time, and above-target totals.
 - A schedule-aware **Today Plan** with every planned goal, completed states, total remaining time, and a stable next-goal suggestion.
 - A seven-day navigator with a persistent Today shortcut when another date is selected.
-- A daily summary with total studied time and scheduled-goal completion count.
-- A clickable Monday–Sunday overview with weekly total, elapsed-day average, completion count, and per-goal breakdown.
-- A non-blocking **Last 30 days** section ending Today, with total study time, available-day average, active days, and goal completion rate.
-- An accessible calendar-style 30-day completion heatmap with weekday/month labels and date tooltips.
-- An interactive **Activity over time** line chart with goal-color filtering and keyboard-accessible date navigation.
+- Separate daily and weekly totals for **Active computer** and **Goal tracking**, plus scheduled-goal completion counts.
+- **Where your time went** views for foreground Apps, foreground browser Sites, and user-defined Categories, with Top-N grouping, real Other totals, percentages, app-to-domain drill-down, session details, and classification actions.
+- A sequential **Activity timeline** with Apps and Categories modes. AFK or missing-evidence gaps remain visible instead of being attributed to an app.
+- User-ordered Activity Categories with application, domain, and window-title rules. The first matching category wins and everything else remains **Uncategorized** without disappearing from Active computer time.
+- A clickable Monday–Sunday overview with separate computer/goal totals, elapsed-day average, completion count, and per-goal breakdown.
+- A non-blocking **Last 30 days** section ending Today, with computer activity, daily active average, most-used app, goal tracking, and goal completion.
+- Accessible calendar-style 30-day heatmaps with **Completion** and stable-threshold **Activity** modes.
+- An interactive **Activity over time** line chart with **Goals**, **Apps**, and **Categories** modes, color filtering, and keyboard-accessible date navigation.
 - Per-goal 30-day consistency, completed-day counts, current and best streaks.
 - Goal details for the selected week plus a compact 30-day total, completion, and streak summary.
 - Live **Tracking now** badges with the current continuous session duration, Pause/Resume, persisted pause intervals, and reduced-motion-safe progress particles.
@@ -63,7 +75,7 @@ _Screenshot coming after the first packaged release._
 
 Daily Hub is marked desktop-only because it depends on a local ActivityWatch server and desktop watcher data.
 
-Application and window-title rules require `aw-watcher-window`; URL rules use `aw-watcher-web` as an independent source of current-tab activity and do not require that browser to be the foreground application. AFK exclusion requires `aw-watcher-afk`.
+Application and window-title goal rules require `aw-watcher-window`; URL goal rules use `aw-watcher-web` as an independent source of current-tab activity and do not require that browser to be foreground. Global computer activity requires `aw-watcher-window`, and AFK exclusion requires `aw-watcher-afk`.
 
 ## Install
 
@@ -124,7 +136,9 @@ If Daily Hub cannot locate the file, follow the [official ActivityWatch configur
 
 URL matching requires an ActivityWatch browser extension. Install the watcher for your browser by following the [official browser watcher instructions](https://docs.activitywatch.net/en/latest/watchers.html#web-browser). Daily Hub does not attempt to install browser extensions automatically. Without it, application and window-title rules continue to work and the dashboard explains that URL data is unavailable.
 
-While a browser event is active, its `web.tab.current` URL is authoritative even when another application is in the foreground. Short heartbeat gaps may be bridged for up to two minutes when later browser evidence confirms the gap; a matching foreground browser/title can also corroborate the live tail. Daily Hub never invents a URL without recent real browser data.
+For **goal tracking**, an active `web.tab.current` URL remains authoritative even when another application is foreground. Short heartbeat gaps may be bridged for up to two minutes when later browser evidence confirms the gap; a matching foreground browser/title can also corroborate the live tail.
+
+For **computer activity**, browser data has narrower semantics: it enriches only a foreground segment from the corresponding browser. Chrome data cannot enrich Firefox, and a background or stale tab cannot receive foreground site time. Main analytics store and display normalized hostnames such as `github.com`, not full paths or query strings.
 
 ## Example: keybr.com
 
@@ -161,7 +175,9 @@ For passive activities such as video lessons, a specific Primary rule can enable
 
 ## How counting works
 
-ActivityWatch remains the source of truth. Daily Hub requests the selected local-day range, clips and sorts events, resolves independent browser and window context (including bounded browser-gap handling), applies rule-aware AFK exclusion, matches timeline segments to enabled goals, and computes progress on demand. Context is reconstructed from that timeline for every calculation and is not stored in plugin data. It prefers the current ActivityWatch hostname and the newest duplicate bucket for each source. It does not duplicate raw ActivityWatch history into the vault.
+ActivityWatch remains the source of truth. Daily Hub requests the selected local-day range once and derives two views from the cached snapshot. Goal analytics keep the existing independent browser/window attribution, bounded browser-gap handling, rule-aware AFK behavior, and deterministic overlap resolution. Computer analytics split the foreground-window timeline at all relevant boundaries, clip it to the local day, remove every reported AFK interval, and enrich a segment with a normalized domain only when the browser source matches the foreground browser. This guarantees `sum(app durations) = Active computer time`, `sum(categories including Uncategorized) = Active computer time`, and `sum(site durations) <= foreground browser time`.
+
+Category rules use their current configuration for every requested date. Rules inside one category use OR logic; categories are evaluated from top to bottom, and the first match wins. Deleting a category does not delete history—affected segments simply become Uncategorized. Assigning, creating, renaming, reordering, or deleting categories changes only local classification settings.
 
 New goals only track ActivityWatch activity from the moment they are created. Existing legacy goals from earlier plugin versions retain their historical behavior because their original creation timestamps are unknown.
 
@@ -178,6 +194,9 @@ If two goals' primary rules accidentally match one segment, only the goal with t
 ## Current limitations
 
 - Context starts empty at midnight for each calculated local day; it is not carried across day boundaries.
+- The computer timeline represents focused/foreground activity, including on multi-monitor systems; it does not mean every visible window.
+- Category rule changes reclassify historical activity using the current configuration; categories do not have revision history yet.
+- Passive/background browser activity can belong to goals but not foreground computer analytics.
 - No automatic ActivityWatch binary or browser-extension installation.
 - No revision-history editor, weekly/monthly aggregate goals, manual timers, calendar integrations, or cloud sync.
 
@@ -200,6 +219,10 @@ If two goals' primary rules accidentally match one segment, only the goal with t
 15. Set a goal to `Mon–Fri 60 min`, `Sat 30 min`, and `Sun Rest`; select Sunday and confirm that it is neutral rather than incomplete.
 16. Override Today to `90 min`, then skip and reset it; confirm the card, Today Plan, completion denominator, and remaining total update without creating config revisions.
 17. Change a goal target, schedule, or rule, then revisit a date before the edit and confirm it still uses the earlier configuration while later activity uses the new revision.
+18. Work in Obsidian for five minutes and confirm **Active computer**, Apps, and the activity timeline all show approximately five minutes without adding a background Chrome tab.
+19. Bring Chrome to the foreground and switch between two domains; confirm Sites follows the domains and their sum does not exceed Chrome foreground time.
+20. Create a Development category for Terminal and `github.com`; confirm historical activity reclassifies, Uncategorized decreases, and total computer activity does not change.
+21. Switch Activity over time among Goals, Apps, and Categories, then switch the heatmap between Completion and Activity.
 
 ## License
 

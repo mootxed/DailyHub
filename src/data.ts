@@ -6,6 +6,9 @@ import {
   WEEKDAYS,
   type DailyGoal,
   type DailyHubData,
+  type ActivityCategory,
+  type ActivityCategoryRule,
+  type ActivityCategoryRuleField,
   type GoalDayOverride,
   type GoalConfigRevision,
   type GoalRule,
@@ -23,6 +26,7 @@ import { isValidTargetMinutes } from "./schedule";
 const RULE_FIELDS = new Set<RuleField>(["url", "application", "windowTitle"]);
 const MATCH_OPERATORS = new Set<MatchOperator>(["contains", "equals"]);
 const RULE_ROLES = new Set<GoalRuleRole>(["primary", "continuation"]);
+const CATEGORY_RULE_FIELDS = new Set<ActivityCategoryRuleField>(["application", "domain", "windowTitle"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -205,6 +209,47 @@ function parseGoals(value: unknown): DailyGoal[] {
   });
 }
 
+function parseActivityCategoryRule(value: unknown): ActivityCategoryRule | undefined {
+  if (!isRecord(value)
+    || !nonEmptyString(value.id)
+    || !CATEGORY_RULE_FIELDS.has(value.field as ActivityCategoryRuleField)
+    || !MATCH_OPERATORS.has(value.operator as MatchOperator)
+    || !nonEmptyString(value.value)) return undefined;
+  return {
+    id: value.id,
+    field: value.field as ActivityCategoryRuleField,
+    operator: value.operator as MatchOperator,
+    value: value.value.trim()
+  };
+}
+
+function parseActivityCategories(value: unknown): ActivityCategory[] {
+  if (!Array.isArray(value)) return [];
+  const ids = new Set<string>();
+  return value.flatMap((candidate): ActivityCategory[] => {
+    if (!isRecord(candidate) || !nonEmptyString(candidate.id)
+      || !nonEmptyString(candidate.name) || ids.has(candidate.id)) return [];
+    ids.add(candidate.id);
+    const rules = Array.isArray(candidate.rules)
+      ? candidate.rules.flatMap((rule) => {
+        const parsed = parseActivityCategoryRule(rule);
+        return parsed === undefined ? [] : [parsed];
+      })
+      : [];
+    return [{
+      id: candidate.id,
+      name: candidate.name.trim(),
+      ...(typeof candidate.colorIndex === "number"
+        && Number.isInteger(candidate.colorIndex)
+        && candidate.colorIndex >= 0
+        && candidate.colorIndex < 8
+        ? { colorIndex: candidate.colorIndex }
+        : {}),
+      rules
+    }];
+  });
+}
+
 export function normalizeData(value: unknown): DailyHubData {
   if (!isRecord(value)) return structuredClone(DEFAULT_DATA);
   const settings = isRecord(value.settings) ? value.settings : {};
@@ -224,6 +269,7 @@ export function normalizeData(value: unknown): DailyHubData {
         : DEFAULT_SETTINGS.completionNotifications
     },
     goals: parseGoals(value.goals),
+    activityCategories: parseActivityCategories(value.activityCategories),
     notifiedCompletions: Array.isArray(value.notifiedCompletions)
       ? value.notifiedCompletions.filter((item): item is string => typeof item === "string")
       : []

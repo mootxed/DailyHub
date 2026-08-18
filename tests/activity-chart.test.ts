@@ -12,6 +12,8 @@ import {
 import { getLocalDateRange } from "../src/date";
 import type { DailyGoal, GoalProgress } from "../src/models";
 import { calculateDailyProgress } from "../src/progress";
+import { buildComputerActivityChartSeries } from "../src/view/activity-chart-view";
+import type { DailyComputerActivity } from "../src/activity-models";
 
 const DATE = "2026-08-18";
 
@@ -38,6 +40,42 @@ function progress(goalId: string, minutes: number): GoalProgress {
 }
 
 describe("activity line chart", () => {
+  it("builds top foreground app and category series without mixing mode ids", () => {
+    const computer = (
+      dateKey: string,
+      applications: DailyComputerActivity["applications"],
+      categories: DailyComputerActivity["categories"]
+    ): DailyComputerActivity => ({
+      dateKey,
+      available: true,
+      activeComputerSeconds: applications.reduce((sum, item) => sum + item.seconds, 0),
+      browserForegroundSeconds: 0,
+      segments: [],
+      applications,
+      sites: [],
+      categories
+    });
+    const item = (id: string, seconds: number) => ({ id, label: id, seconds, percentage: 1 });
+    const days = [{
+      key: "2026-08-17",
+      date: new Date(2026, 7, 17),
+      future: false,
+      progress: undefined,
+      computerActivity: computer("2026-08-17", [item("Obsidian", 600)], [item("development", 600)])
+    }, {
+      key: "2026-08-18",
+      date: new Date(2026, 7, 18),
+      future: false,
+      progress: undefined,
+      computerActivity: computer("2026-08-18", [item("Obsidian", 300)], [item("uncategorized", 300)])
+    }];
+    expect(buildComputerActivityChartSeries(days, "apps", []).map((series) => ({
+      id: series.goalId, points: series.points.map((point) => point.seconds)
+    }))).toEqual([{ id: "Obsidian", points: [600, 300] }]);
+    expect(buildComputerActivityChartSeries(days, "categories", []).map((series) => series.goalId))
+      .toEqual(["development", "uncategorized"]);
+  });
+
   it("builds an independent daily series for each goal", () => {
     const series = buildActivityChartSeries([goal("devops"), goal("japanese")], [
       {

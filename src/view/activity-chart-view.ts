@@ -1,4 +1,5 @@
 import {
+  type ActivityChartSeries,
   buildActivityChartSeries,
   filterActivityChartSeries,
   formatChartDuration,
@@ -7,12 +8,18 @@ import {
 } from "../activity-chart";
 import { formatDuration } from "../dashboard";
 import type { DailyGoal, GoalProgress } from "../models";
+import type { ActivityCategory } from "../models";
+import type { DailyComputerActivity } from "../activity-models";
+import { getGoalColor } from "../activity-chart";
+
+export type ActivityChartMode = "goals" | "apps" | "categories";
 
 export interface ActivityChartDayView {
   key: string;
   date: Date;
   future: boolean;
   progress: GoalProgress[] | undefined;
+  computerActivity?: DailyComputerActivity;
 }
 
 export interface ActivityChartViewOptions {
@@ -20,22 +27,75 @@ export interface ActivityChartViewOptions {
   days: ActivityChartDayView[];
   hiddenGoalIds: Set<string>;
   selectDate: (dateKey: string) => void;
+  mode?: ActivityChartMode;
+  categories?: ActivityCategory[];
+  setMode?: (mode: ActivityChartMode) => void;
+}
+
+export function buildComputerActivityChartSeries(
+  days: ActivityChartDayView[],
+  mode: "apps" | "categories",
+  categories: ActivityCategory[]
+): ActivityChartSeries[] {
+  const source = (day: DailyComputerActivity) => mode === "apps" ? day.applications : day.categories;
+  const totals = new Map<string, { name: string; seconds: number }>();
+  for (const day of days) {
+    if (day.computerActivity?.available !== true) continue;
+    for (const item of source(day.computerActivity)) {
+      const current = totals.get(item.id);
+      if (current === undefined) totals.set(item.id, { name: item.label, seconds: item.seconds });
+      else current.seconds += item.seconds;
+    }
+  }
+  const categoryById = new Map(categories.map((category) => [category.id, category]));
+  return [...totals].sort((left, right) => right[1].seconds - left[1].seconds).slice(0, 5)
+    .map(([id, item]) => ({
+      goalId: id,
+      goalName: item.name,
+      color: getGoalColor(`${mode}:${id}`, mode === "categories" ? categoryById.get(id)?.colorIndex : undefined),
+      points: days.map((day) => {
+        if (day.future) return { dateKey: day.key, seconds: null, missingReason: "future" as const };
+        if (day.computerActivity?.available !== true) {
+          return { dateKey: day.key, seconds: null, missingReason: "unavailable" as const };
+        }
+        return {
+          dateKey: day.key,
+          seconds: source(day.computerActivity).find((candidate) => candidate.id === id)?.seconds ?? 0
+        };
+      })
+    }));
 }
 
 export function renderActivityChartView(container: HTMLElement, options: ActivityChartViewOptions): void {
-  const allSeries = buildActivityChartSeries(options.goals, options.days.map((day) => ({
-    dateKey: day.key,
-    future: day.future,
-    progress: day.progress
-  })));
+  const mode = options.mode ?? "goals";
+  const allSeries = mode === "goals"
+    ? buildActivityChartSeries(options.goals, options.days.map((day) => ({
+      dateKey: day.key,
+      future: day.future,
+      progress: day.progress
+    })))
+    : buildComputerActivityChartSeries(options.days, mode, options.categories ?? []);
   const section = container.createDiv({ cls: "daily-hub-line-chart-card daily-hub-panel" });
   const heading = section.createDiv({ cls: "daily-hub-section-heading" });
-  heading.createEl("div", { text: "Activity", cls: "daily-hub-kicker" });
-  heading.createEl("h2", { text: "Activity over time", cls: "daily-hub-section-title" });
+  const headingCopy = heading.createDiv();
+  headingCopy.createEl("div", { text: "Activity", cls: "daily-hub-kicker" });
+  headingCopy.createEl("h2", { text: "Activity over time", cls: "daily-hub-section-title" });
+  if (options.setMode !== undefined) {
+    const tabs = heading.createDiv({ cls: "daily-hub-segmented-control", attr: { role: "tablist" } });
+    for (const candidate of ["goals", "apps", "categories"] as const) {
+      const selected = mode === candidate;
+      const button = tabs.createEl("button", {
+        text: candidate === "goals" ? "Goals" : candidate === "apps" ? "Apps" : "Categories",
+        cls: selected ? "is-selected" : "",
+        attr: { type: "button", role: "tab", "aria-selected": String(selected) }
+      });
+      button.addEventListener("click", () => options.setMode?.(candidate));
+    }
+  }
 
   const legend = section.createDiv({
     cls: "daily-hub-chart-legend",
-    attr: { role: "group", "aria-label": "Toggle goal activity series" }
+    attr: { role: "group", "aria-label": `Toggle ${mode} activity series` }
   });
   const chart = section.createDiv({ cls: "daily-hub-chart-content" });
 
@@ -61,7 +121,7 @@ export function renderActivityChartView(container: HTMLElement, options: Activit
     const series = filterActivityChartSeries(allSeries, options.hiddenGoalIds);
     if (series.length === 0) {
       const empty = chart.createDiv({ cls: "daily-hub-chart-empty-state" });
-      empty.createEl("p", { text: "All goal series are hidden.", cls: "daily-hub-muted" });
+      empty.createEl("p", { text: `All ${mode} series are hidden.`, cls: "daily-hub-muted" });
       const showAll = empty.createEl("button", { text: "Show all", attr: { type: "button" } });
       showAll.addEventListener("click", () => {
         options.hiddenGoalIds.clear();
@@ -97,7 +157,7 @@ export function renderActivityChartView(container: HTMLElement, options: Activit
     svg.setAttribute("class", "daily-hub-line-chart");
     svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
     svg.setAttribute("role", "img");
-    svg.setAttribute("aria-label", "Goal activity over the selected week");
+    svg.setAttribute("aria-label", `${mode} activity over the selected week`);
     scroll.appendChild(svg);
 
     const createSvg = <K extends keyof SVGElementTagNameMap>(

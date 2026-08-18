@@ -3,6 +3,7 @@ import { calculateRangeAnalytics, getHeatmapLevel } from "../src/analytics";
 import { addLocalDays, getLocalDateRange, toLocalDateKey } from "../src/date";
 import { createDefaultSchedule, type ActivityEvent, type DailyGoal, type DayActivity, type GoalProgress } from "../src/models";
 import { calculateRangeProgress, type DayProgressResult } from "../src/range-progress";
+import { getActivityHeatmapLevel } from "../src/view/analytics-view";
 
 const devopsGoal: DailyGoal = {
   id: "devops",
@@ -48,6 +49,11 @@ function day(dateKey: string, devops: number, typing: number): DayProgressResult
 }
 
 describe("30-day range analytics", () => {
+  it("uses stable activity heatmap thresholds", () => {
+    expect([0, 30 * 60, 90 * 60, 3 * 60 * 60, 5 * 60 * 60, 7 * 60 * 60]
+      .map(getActivityHeatmapLevel)).toEqual([0, 1, 2, 3, 4, 5]);
+  });
+
   it("calculates totals, tracked-day average, active days, opportunities, and stable goal order", () => {
     const analytics = calculateRangeAnalytics(goals, [
       day("2026-08-14", 3_600, 1_800),

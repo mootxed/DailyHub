@@ -3,6 +3,39 @@ import { normalizeData, requiresDataMigration } from "../src/data";
 import { createDefaultSchedule, DATA_SCHEMA_VERSION } from "../src/models";
 
 describe("plugin data validation", () => {
+  it("migrates existing users to an empty category list", () => {
+    const data = normalizeData({ schemaVersion: 8, settings: {}, goals: [], notifiedCompletions: [] });
+    expect(data.activityCategories).toEqual([]);
+    expect(requiresDataMigration({ schemaVersion: 8, settings: {}, goals: [] })).toBe(true);
+  });
+
+  it("normalizes ordered activity categories and their rules", () => {
+    const data = normalizeData({
+      schemaVersion: DATA_SCHEMA_VERSION,
+      settings: {},
+      goals: [],
+      activityCategories: [{
+        id: "development",
+        name: " Development ",
+        colorIndex: 2,
+        rules: [
+          { id: "app", field: "application", operator: "contains", value: " code " },
+          { id: "bad", field: "url", operator: "equals", value: "example.com" }
+        ]
+      }, {
+        id: "development",
+        name: "Duplicate",
+        rules: []
+      }]
+    });
+    expect(data.activityCategories).toEqual([{
+      id: "development",
+      name: "Development",
+      colorIndex: 2,
+      rules: [{ id: "app", field: "application", operator: "contains", value: "code" }]
+    }]);
+  });
+
   it("migrates legacy settings without losing valid goals", () => {
     const legacy = {
       settings: {

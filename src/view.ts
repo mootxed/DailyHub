@@ -4,6 +4,13 @@ import {
   type GoalRangeStats,
   type RangeAnalytics
 } from "./analytics";
+import { ActivityDetailsModal } from "./activity-details";
+import {
+  activityForUnavailableDate,
+  calculateComputerActivity,
+  calculateComputerActivityRange
+} from "./activity-analysis";
+import type { ComputerActivityRange, DailyComputerActivity } from "./activity-models";
 import { getGoalColor } from "./activity-chart";
 import {
   formatDuration,
@@ -48,8 +55,17 @@ import { BROWSER_CONTEXT_GRACE_MS, calculateDailyProgress, resolveLiveTrackingSt
 import { calculateRangeProgress, type DayActivityInput } from "./range-progress";
 import { applyScheduleToProgress, type PlannedGoalProgress } from "./schedule";
 import { calculateGoalWeekStats, calculateWeekProgress, type WeekDayActivity } from "./weekly-progress";
-import { renderActivityChartView } from "./view/activity-chart-view";
-import { renderCalendarHeatmap, renderGoalConsistencyView } from "./view/analytics-view";
+import { renderActivityChartView, type ActivityChartMode } from "./view/activity-chart-view";
+import {
+  renderActivityBreakdownView,
+  type ActivityBreakdownMode
+} from "./view/activity-breakdown-view";
+import {
+  renderActivityHeatmap,
+  renderCalendarHeatmap,
+  renderGoalConsistencyView
+} from "./view/analytics-view";
+import { renderDayTimelineView, type DayTimelineMode } from "./view/day-timeline-view";
 
 export const DAILY_HUB_VIEW_TYPE = "daily-hub-view";
 const ACTIVITYWATCH_DOWNLOAD_URL = "https://activitywatch.net/downloads/";
@@ -71,6 +87,7 @@ interface WeekDayData {
   date: Date;
   future: boolean;
   progress: GoalProgress[] | undefined;
+  computerActivity: DailyComputerActivity;
 }
 
 interface GoalRuntimeElements {
@@ -101,6 +118,12 @@ export class DailyHubView extends ItemView {
   private selectedActivityAvailable = false;
   private todayActivity: DayActivity | undefined;
   private readonly hiddenChartGoalIds = new Set<string>();
+  private readonly hiddenChartAppIds = new Set<string>();
+  private readonly hiddenChartCategoryIds = new Set<string>();
+  private activityChartMode: ActivityChartMode = "goals";
+  private activityBreakdownMode: ActivityBreakdownMode = "apps";
+  private dayTimelineMode: DayTimelineMode = "apps";
+  private heatmapMode: "completion" | "activity" = "completion";
 
   constructor(leaf: WorkspaceLeaf, plugin: DailyHubPlugin) {
     super(leaf);
@@ -169,6 +192,14 @@ export class DailyHubView extends ItemView {
       selectedSnapshot?.activity ?? { windowEvents: [], browserEvents: [], afkEvents: [] },
       this.selectedDateKey
     );
+    const selectedComputerActivity = selectedSnapshot?.status.kind === "connected"
+      && selectedSnapshot.status.windowWatcherAvailable
+      ? calculateComputerActivity(
+        selectedSnapshot.activity,
+        this.selectedDateKey,
+        this.plugin.data.activityCategories
+      )
+      : activityForUnavailableDate(this.selectedDateKey);
     const weekActivity = weekDates.map((date): WeekDayActivity => {
       const key = toLocalDateKey(date);
       const future = isFutureDate(key, today);
@@ -186,7 +217,13 @@ export class DailyHubView extends ItemView {
       key: day.dateKey,
       date: getLocalDateRange(day.dateKey).start,
       future: day.future,
-      progress: day.progress
+      progress: day.progress,
+      computerActivity: (() => {
+        const snapshot = snapshots.get(day.dateKey);
+        return !day.future && snapshot?.status.kind === "connected" && snapshot.status.windowWatcherAvailable
+          ? calculateComputerActivity(snapshot.activity, day.dateKey, this.plugin.data.activityCategories)
+          : activityForUnavailableDate(day.dateKey);
+      })()
     }));
 
     const weeklyAnalytics = summarizeWeek(
@@ -205,16 +242,15 @@ export class DailyHubView extends ItemView {
       selectedProgress,
       week,
       weeklyAnalytics,
+      selectedComputerActivity,
       selectedFuture,
       selectedSnapshot?.status.kind === "connected"
     );
     this.hasRendered = true;
 
-    if (this.plugin.data.goals.some((goal) => goal.enabled)) {
-      void this.ensureLongTermActivity(todayKey).then(() => {
-        if (todayKey === toLocalDateKey(new Date())) this.renderLongTermContent(today);
-      });
-    }
+    void this.ensureLongTermActivity(todayKey).then(() => {
+      if (todayKey === toLocalDateKey(new Date())) this.renderLongTermContent(today);
+    });
 
     if (todaySnapshot !== undefined) {
       const todayProgress = isToday(this.selectedDateKey, today)
@@ -256,6 +292,7 @@ export class DailyHubView extends ItemView {
     progress: GoalProgress[],
     week: WeekDayData[],
     weeklyAnalytics: WeeklyAnalytics,
+    computerActivity: DailyComputerActivity,
     future: boolean,
     selectedAvailable: boolean
   ): void {
@@ -288,15 +325,13 @@ export class DailyHubView extends ItemView {
     add.addEventListener("click", () => new GoalEditorModal(this.plugin).open());
 
     const hud = header.createDiv({ cls: "daily-hub-header-hud", attr: { "aria-label": "Daily Hub status" } });
-    this.renderHudMetric(
-      hud,
-      selectedAvailable ? formatDuration(daySummary.totalActiveSeconds) : "—",
-      "studied"
-    );
+    this.renderHudMetric(hud, computerActivity.available
+      ? formatDuration(computerActivity.activeComputerSeconds) : "—", "active");
+    this.renderHudMetric(hud, selectedAvailable ? formatDuration(daySummary.totalActiveSeconds) : "—", "goals");
     this.renderHudMetric(
       hud,
       selectedAvailable ? `${daySummary.completedGoals} / ${daySummary.goalCount}` : "—",
-      "goals"
+      "done"
     );
     const connection = hud.createDiv({ cls: `daily-hub-hud-status is-${status.kind}` });
     connection.createEl("span", { cls: "daily-hub-status-dot", attr: { "aria-hidden": "true" } });
@@ -322,11 +357,19 @@ export class DailyHubView extends ItemView {
     });
 
     const summary = overview.createDiv({ cls: "daily-hub-summary", attr: { "aria-label": "Daily summary" } });
-    const studied = summary.createDiv({ cls: "daily-hub-summary-item" });
-    studied.createEl("strong", {
+    const active = summary.createDiv({ cls: "daily-hub-summary-item" });
+    active.createEl("strong", {
+      text: computerActivity.available ? formatDuration(computerActivity.activeComputerSeconds) : "—"
+    });
+    active.createEl("span", { text: "active computer" });
+    const goalTracking = summary.createDiv({ cls: "daily-hub-summary-item" });
+    goalTracking.createEl("strong", {
       text: selectedAvailable ? formatDuration(daySummary.totalActiveSeconds) : "—"
     });
-    studied.createEl("span", { text: "studied" });
+    goalTracking.createEl("span", {
+      text: "goal tracking",
+      attr: { title: "Goal tracking may overlap foreground computer activity, for example while a passive browser goal continues in the background." }
+    });
     const completed = summary.createDiv({ cls: "daily-hub-summary-item" });
     completed.createEl("strong", {
       text: selectedAvailable ? `${daySummary.completedGoals} / ${daySummary.goalCount}` : "—"
@@ -368,6 +411,18 @@ export class DailyHubView extends ItemView {
       this.renderStatus(bento, status);
     }
 
+    renderActivityBreakdownView(bento, {
+      activity: computerActivity,
+      mode: this.activityBreakdownMode,
+      categories: this.plugin.data.activityCategories,
+      available: computerActivity.available,
+      setMode: (mode) => {
+        this.activityBreakdownMode = mode;
+        void this.refresh();
+      },
+      openDetails: (item, mode) => new ActivityDetailsModal(this.plugin, computerActivity, item, mode).open()
+    });
+
     const goalsTile = bento.createDiv({ cls: "daily-hub-bento-goals daily-hub-panel" });
     const goalsHeader = goalsTile.createDiv({ cls: "daily-hub-section-heading" });
     goalsHeader.createEl("div", { text: "Current actions", cls: "daily-hub-kicker" });
@@ -402,6 +457,16 @@ export class DailyHubView extends ItemView {
         }
       }
     }
+
+    renderDayTimelineView(bento, {
+      activity: computerActivity,
+      categories: this.plugin.data.activityCategories,
+      mode: this.dayTimelineMode,
+      setMode: (mode) => {
+        this.dayTimelineMode = mode;
+        void this.refresh();
+      }
+    });
 
     const analyticsLayout = bento.createDiv({ cls: "daily-hub-bento-analytics" });
     this.renderActivityChart(analyticsLayout, week);
@@ -561,9 +626,15 @@ export class DailyHubView extends ItemView {
     heading.createEl("h2", { text: "This week", cls: "daily-hub-section-title" });
 
     const summary = section.createDiv({ cls: "daily-hub-week-summary", attr: { "aria-label": "Weekly summary" } });
+    const computer = calculateComputerActivityRange(week.map((day) => day.computerActivity));
+    const computerTotal = summary.createDiv({ cls: "daily-hub-summary-item" });
+    computerTotal.createEl("strong", {
+      text: computer.availableDays > 0 ? formatDuration(computer.totalSeconds) : "—"
+    });
+    computerTotal.createEl("span", { text: "active computer" });
     const total = summary.createDiv({ cls: "daily-hub-summary-item" });
     total.createEl("strong", { text: formatDuration(analytics.totalActiveSeconds) });
-    total.createEl("span", { text: analytics.unavailableDays > 0 ? "total (partial)" : "total" });
+    total.createEl("span", { text: analytics.unavailableDays > 0 ? "goal tracking (partial)" : "goal tracking" });
     const average = summary.createDiv({ cls: "daily-hub-summary-item" });
     average.createEl("strong", {
       text: analytics.dailyAverageSeconds === undefined ? "—" : formatDuration(analytics.dailyAverageSeconds)
@@ -627,11 +698,22 @@ export class DailyHubView extends ItemView {
   }
 
   private renderActivityChart(container: HTMLElement, week: WeekDayData[]): void {
+    const hiddenIds = this.activityChartMode === "goals"
+      ? this.hiddenChartGoalIds
+      : this.activityChartMode === "apps"
+        ? this.hiddenChartAppIds
+        : this.hiddenChartCategoryIds;
     renderActivityChartView(container, {
       goals: this.plugin.data.goals.filter((goal) => goal.enabled),
       days: week,
-      hiddenGoalIds: this.hiddenChartGoalIds,
-      selectDate: (dateKey) => this.selectDate(dateKey)
+      hiddenGoalIds: hiddenIds,
+      selectDate: (dateKey) => this.selectDate(dateKey),
+      mode: this.activityChartMode,
+      categories: this.plugin.data.activityCategories,
+      setMode: (mode) => {
+        this.activityChartMode = mode;
+        void this.refresh();
+      }
     });
   }
 
@@ -640,62 +722,88 @@ export class DailyHubView extends ItemView {
     if (section === undefined) return;
     section.empty();
 
-    const enabledGoals = this.plugin.data.goals.filter((goal) => goal.enabled);
-    if (enabledGoals.length === 0) {
-      const empty = section.createDiv({ cls: "daily-hub-analytics-notice daily-hub-panel" });
-      empty.createEl("p", { text: "Add goals to see long-term analytics.", cls: "daily-hub-muted" });
-      return;
-    }
-
     const analytics = this.getLongTermAnalytics(toLocalDateKey(today));
-    if (analytics === undefined) {
+    const computer = this.getLongTermComputerAnalytics(toLocalDateKey(today));
+    if (analytics === undefined || computer === undefined) {
       const loading = section.createDiv({ cls: "daily-hub-analytics-notice daily-hub-panel" });
       loading.createEl("p", { text: "Loading analytics…", cls: "daily-hub-muted", attr: { role: "status" } });
       return;
     }
-    if (analytics.availableDays === 0) {
+    if (analytics.availableDays === 0 && computer.availableDays === 0) {
       const unavailable = section.createDiv({ cls: "daily-hub-analytics-notice daily-hub-panel" });
       unavailable.createEl("p", { text: "30-day analytics unavailable", cls: "daily-hub-muted", attr: { role: "status" } });
-      const heatmap = this.createAnalyticsTile(section, "Daily completion", "Last 30 days", "daily-hub-bento-heatmap");
-      this.renderHeatmap(heatmap, analytics, false);
-      const consistency = this.createAnalyticsTile(section, "Goal consistency", "Last 30 days", "daily-hub-bento-consistency");
-      this.renderGoalConsistency(consistency, analytics.goals, false);
+      this.renderLongTermHeatmap(section, analytics, computer);
+      this.renderLongTermConsistency(section, analytics);
       return;
     }
 
-    this.renderLongTermMetric(section, formatDuration(analytics.totalSeconds), "Total");
+    this.renderLongTermMetric(section, formatDuration(computer.totalSeconds), "Computer activity");
+    this.renderLongTermMetric(
+      section, computer.averageSeconds === undefined ? "—" : formatDuration(computer.averageSeconds),
+      "Daily active average"
+    );
     this.renderLongTermMetric(
       section,
-      analytics.averageSeconds === undefined ? "—" : formatDuration(analytics.averageSeconds),
-      "Daily average"
+      computer.topApplication === undefined
+        ? "—"
+        : `${computer.topApplication.label} · ${formatDuration(computer.topApplication.seconds)}`,
+      "Most used app"
     );
-    this.renderLongTermMetric(section, String(analytics.activeDays), "Active days");
+    this.renderLongTermMetric(section, formatDuration(analytics.totalSeconds), "Goal tracking");
     this.renderLongTermMetric(
       section,
       analytics.completionRate === undefined ? "—" : `${Math.round(analytics.completionRate * 100)}%`,
       "Goal completion"
     );
+    this.renderLongTermHeatmap(section, analytics, computer);
+    this.renderLongTermConsistency(section, analytics);
+  }
 
+  private renderLongTermHeatmap(
+    section: HTMLElement,
+    analytics: RangeAnalytics,
+    computer: ComputerActivityRange
+  ): void {
     const heatmap = this.createAnalyticsTile(
       section,
-      "Daily completion",
+      this.heatmapMode === "completion" ? "Daily completion" : "Computer activity",
       "Last 30 days",
       "daily-hub-bento-heatmap"
     );
-    if (analytics.availableDays < LONG_TERM_DAYS) {
+    const heading = heatmap.querySelector<HTMLElement>(".daily-hub-section-heading");
+    const tabs = heading?.createDiv({ cls: "daily-hub-segmented-control", attr: { role: "tablist" } });
+    if (tabs !== undefined) {
+      for (const mode of ["completion", "activity"] as const) {
+        const selected = this.heatmapMode === mode;
+        const button = tabs.createEl("button", {
+          text: mode === "completion" ? "Completion" : "Activity",
+          cls: selected ? "is-selected" : "",
+          attr: { type: "button", role: "tab", "aria-selected": String(selected) }
+        });
+        button.addEventListener("click", () => {
+          this.heatmapMode = mode;
+          this.renderLongTermContent(new Date());
+        });
+      }
+    }
+    const availableDays = this.heatmapMode === "completion" ? analytics.availableDays : computer.availableDays;
+    if (availableDays < LONG_TERM_DAYS) {
       heatmap.createEl("p", {
-        text: `Partial data: ${analytics.availableDays} of ${LONG_TERM_DAYS} days available`,
+        text: `Partial data: ${availableDays} of ${LONG_TERM_DAYS} days available`,
         cls: "daily-hub-muted"
       });
     }
-    this.renderHeatmap(heatmap, analytics, false);
+    if (this.heatmapMode === "completion") this.renderHeatmap(heatmap, analytics, false);
+    else renderActivityHeatmap(heatmap, computer.days, this.selectedDateKey, (dateKey) => this.selectDate(dateKey));
+  }
+
+  private renderLongTermConsistency(section: HTMLElement, analytics: RangeAnalytics): void {
     const consistency = this.createAnalyticsTile(
-      section,
-      "Goal consistency",
-      "Last 30 days",
-      "daily-hub-bento-consistency"
+      section, "Goal consistency", "Last 30 days", "daily-hub-bento-consistency"
     );
-    this.renderGoalConsistency(consistency, analytics.goals, false);
+    if (analytics.goals.length === 0) {
+      consistency.createEl("p", { text: "Add goals to see goal consistency.", cls: "daily-hub-muted" });
+    } else this.renderGoalConsistency(consistency, analytics.goals, false);
   }
 
   private renderLongTermMetric(container: HTMLElement, value: string, label: string): void {
@@ -746,6 +854,14 @@ export class DailyHubView extends ItemView {
       this.plugin.data.goals,
       calculateRangeProgress(this.plugin.data.goals, days)
     );
+  }
+
+  private getLongTermComputerAnalytics(todayKey: string): ComputerActivityRange | undefined {
+    const days = this.longTermActivity.get(todayKey, this.plugin.data.settings.activityWatchUrl);
+    if (days === undefined) return undefined;
+    return calculateComputerActivityRange(days.map((day) => day.activity === undefined
+      ? activityForUnavailableDate(day.dateKey)
+      : calculateComputerActivity(day.activity, day.dateKey, this.plugin.data.activityCategories)));
   }
 
   private updateLongTermSnapshots(
@@ -837,7 +953,7 @@ export class DailyHubView extends ItemView {
 
     if (!status.windowWatcherAvailable) {
       statusText.createEl("div", {
-        text: "⚠ Window watcher unavailable. Application and window-title rules cannot match.",
+        text: "⚠ Window watcher unavailable. Computer activity is unavailable; application and window-title goal rules cannot match.",
         cls: "daily-hub-warning"
       });
     }

@@ -230,7 +230,7 @@
   background: var(--dh-brand);
   border-top: 1px solid rgb(255 255 255 / 10%);
   display: grid;
-  grid-template-columns: repeat(2, minmax(120px, auto)) minmax(180px, 1fr);
+  grid-template-columns: repeat(3, minmax(105px, auto)) minmax(180px, 1fr);
   min-height: 58px;
   padding: 0 var(--size-4-5);
 }
@@ -1450,6 +1450,14 @@
   border-color: var(--dh-border);
 }
 
+.daily-hub-category-settings {
+  background: var(--dh-surface-raised);
+  border: 1px solid var(--dh-border);
+  border-radius: var(--dh-radius-md);
+  margin: var(--size-4-3) 0;
+  padding: 0 var(--size-4-3);
+}
+
 /* Bento dashboard and activity line chart */
 .daily-hub-bento {
   display: grid;
@@ -1486,7 +1494,9 @@
 .daily-hub-bento-breakdown,
 .daily-hub-line-chart-card,
 .daily-hub-bento-heatmap,
-.daily-hub-bento-consistency {
+.daily-hub-bento-consistency,
+.daily-hub-activity-breakdown,
+.daily-hub-day-timeline {
   padding: var(--size-4-5);
 }
 
@@ -1497,6 +1507,149 @@
 .daily-hub-bento-consistency > .daily-hub-section-heading {
   margin-top: 0;
 }
+
+.daily-hub-section-heading-with-tabs,
+.daily-hub-line-chart-card > .daily-hub-section-heading,
+.daily-hub-bento-heatmap > .daily-hub-section-heading {
+  align-items: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--size-4-2) var(--size-4-4);
+  justify-content: space-between;
+}
+
+.daily-hub-segmented-control {
+  background: var(--dh-surface-muted);
+  border: 1px solid var(--dh-border);
+  border-radius: var(--dh-radius-sm);
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+}
+
+.daily-hub-segmented-control button {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  color: var(--dh-text-muted);
+  font-size: var(--font-ui-small);
+  height: auto;
+  padding: 4px 8px;
+}
+
+.daily-hub-segmented-control button.is-selected {
+  background: var(--dh-surface);
+  border-color: var(--dh-border);
+  color: var(--dh-text);
+  font-weight: var(--font-semibold);
+}
+
+.daily-hub-activity-breakdown,
+.daily-hub-day-timeline {
+  grid-column: 1 / -1;
+}
+
+.daily-hub-activity-total {
+  align-items: baseline;
+  display: flex;
+  gap: 7px;
+  margin-bottom: var(--size-4-4);
+}
+
+.daily-hub-activity-total strong {
+  font-size: 24px;
+  font-variant-numeric: tabular-nums;
+}
+
+.daily-hub-activity-total span {
+  color: var(--dh-text-muted);
+  font-size: var(--font-ui-small);
+}
+
+.daily-hub-activity-breakdown-list {
+  display: grid;
+  gap: var(--size-4-3);
+}
+
+.daily-hub-activity-breakdown-heading,
+.daily-hub-activity-breakdown-name,
+.daily-hub-activity-domain,
+.daily-hub-activity-drilldown-button {
+  align-items: center;
+  display: flex;
+}
+
+.daily-hub-activity-breakdown-heading,
+.daily-hub-activity-domain {
+  gap: var(--size-4-3);
+  justify-content: space-between;
+}
+
+.daily-hub-activity-breakdown-heading > span,
+.daily-hub-activity-domain strong {
+  color: var(--dh-text-muted);
+  font-size: var(--font-ui-small);
+  font-variant-numeric: tabular-nums;
+}
+
+.daily-hub-activity-breakdown-name { gap: 8px; min-width: 0; }
+.daily-hub-activity-breakdown-name strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.daily-hub-activity-swatch {
+  background: var(--dh-activity-color);
+  border-radius: 50%;
+  flex: 0 0 auto;
+  height: 9px;
+  width: 9px;
+}
+
+.daily-hub-activity-breakdown-track {
+  background: var(--dh-surface-muted);
+  border-radius: 2px;
+  height: 6px;
+  margin-top: 5px;
+  overflow: hidden;
+}
+
+.daily-hub-activity-breakdown-bar {
+  background: var(--dh-activity-color);
+  height: 100%;
+  min-width: 2px;
+}
+
+.daily-hub-activity-drilldown-button {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  color: var(--dh-text-muted);
+  font-size: var(--font-ui-smaller);
+  gap: 4px;
+  height: auto;
+  margin-top: 3px;
+  padding: 2px 0;
+}
+
+.daily-hub-activity-drilldown-button svg { height: 13px; width: 13px; }
+.daily-hub-activity-domains { border-left: 2px solid var(--dh-border); display: grid; gap: 5px; margin: 5px 0 0 5px; padding-left: 14px; }
+.daily-hub-activity-details-button { background: transparent; border-color: var(--dh-border); color: var(--dh-text-muted); font-size: var(--font-ui-smaller); height: auto; margin-top: 5px; padding: 3px 8px; }
+.daily-hub-activity-view-all { background: transparent; border: 0; box-shadow: none; color: var(--dh-brand-hover); font-size: var(--font-ui-small); height: auto; margin-top: var(--size-4-3); padding: 3px 0; }
+.daily-hub-activity-details-summary { display: grid; margin-bottom: var(--size-4-5); }
+.daily-hub-activity-details-summary strong { font-size: 28px; }
+.daily-hub-activity-details-summary span { color: var(--dh-text-muted); }
+.daily-hub-activity-detail-row { align-items: center; border-bottom: 1px solid var(--dh-border); display: flex; gap: var(--size-4-4); justify-content: space-between; padding: 7px 0; }
+.daily-hub-activity-detail-row strong { font-variant-numeric: tabular-nums; }
+
+.daily-hub-day-timeline-scroll {
+  min-width: 620px;
+  overflow: visible;
+}
+
+.daily-hub-day-timeline { overflow-x: auto; }
+.daily-hub-day-timeline-axis { color: var(--dh-text-muted); display: flex; font-size: 11px; justify-content: space-between; }
+.daily-hub-day-timeline-track { background: var(--dh-surface-muted); border: 1px solid var(--dh-border); border-radius: 3px; height: 54px; margin-top: 5px; overflow: hidden; position: relative; }
+.daily-hub-day-timeline-segment { align-items: center; background: var(--dh-activity-color); color: #fff; display: flex; height: 100%; min-width: 2px; overflow: hidden; padding: 0 5px; position: absolute; top: 0; }
+.daily-hub-day-timeline-segment span { font-size: 11px; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 1px 1px rgb(0 0 0 / 35%); white-space: nowrap; }
+.daily-hub-timeline-note { margin-bottom: 0; }
 
 .daily-hub-long-term {
   display: contents;
@@ -1650,6 +1803,8 @@
   .daily-hub-bento > .daily-hub-bento-chart,
   .daily-hub-bento-goals,
   .daily-hub-bento-breakdown,
+  .daily-hub-activity-breakdown,
+  .daily-hub-day-timeline,
   .daily-hub-analytics-notice { grid-column: 1 / -1; }
   .daily-hub-bento-day,
   .daily-hub-bento-plan,

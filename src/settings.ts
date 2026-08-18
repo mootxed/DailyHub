@@ -7,6 +7,7 @@ import {
   type AfkConfigStatus
 } from "./afk-config";
 import { GoalEditorModal } from "./goal-editor";
+import { createEmptyActivityCategory, createId, type ActivityCategory } from "./models";
 import type DailyHubPlugin from "./main";
 
 const DOWNLOAD_URL = "https://activitywatch.net/downloads/";
@@ -88,6 +89,8 @@ export class DailyHubSettingTab extends PluginSettingTab {
         window.open(BROWSER_WATCHER_URL, "_blank", "noopener,noreferrer");
       }));
 
+    this.renderActivityCategories(containerEl);
+
     containerEl.createEl("h2", { text: "Daily goals" });
     containerEl.createEl("p", {
       text: "Goals are measured automatically from matching apps, windows, and websites.",
@@ -125,6 +128,134 @@ export class DailyHubSettingTab extends PluginSettingTab {
           }
         }));
     }
+  }
+
+  private renderActivityCategories(container: HTMLElement): void {
+    container.createEl("h2", { text: "Activity categories" });
+    container.createEl("p", {
+      text: "Categories classify foreground activity from top to bottom. Changing a rule reclassifies historical activity; raw ActivityWatch history is not copied into your vault.",
+      cls: "daily-hub-settings-section-copy"
+    });
+    new Setting(container)
+      .setName("Add category")
+      .setDesc("Categories have no target, completion, schedule, or timer.")
+      .addButton((button) => button.setCta().setButtonText("Add category").onClick(async () => {
+        this.plugin.data.activityCategories.push(createEmptyActivityCategory());
+        await this.plugin.savePluginData();
+        await this.plugin.refreshViews();
+        this.display();
+      }));
+
+    if (this.plugin.data.activityCategories.length === 0) {
+      container.createEl("p", {
+        text: "No categories configured. All computer activity is currently Uncategorized.",
+        cls: "daily-hub-muted"
+      });
+      return;
+    }
+
+    this.plugin.data.activityCategories.forEach((category, index) => {
+      this.renderActivityCategory(container, category, index);
+    });
+  }
+
+  private renderActivityCategory(container: HTMLElement, category: ActivityCategory, index: number): void {
+    const card = container.createDiv({ cls: "daily-hub-category-settings" });
+    new Setting(card)
+      .setName(`Category ${index + 1}`)
+      .setDesc("The first matching category wins.")
+      .addText((text) => text.setValue(category.name).onChange(async (value) => {
+        const name = value.trim();
+        if (name.length === 0) return;
+        category.name = name;
+        await this.plugin.savePluginData();
+        await this.plugin.refreshViews();
+      }))
+      .addDropdown((dropdown) => {
+        for (let color = 0; color < 8; color += 1) dropdown.addOption(String(color), `Color ${color + 1}`);
+        dropdown.setValue(String(category.colorIndex ?? index % 8)).onChange(async (value) => {
+          category.colorIndex = Number(value);
+          await this.plugin.savePluginData();
+          await this.plugin.refreshViews();
+        });
+      })
+      .addButton((button) => button.setIcon("arrow-up").setTooltip("Move up").setDisabled(index === 0).onClick(async () => {
+        const previous = this.plugin.data.activityCategories[index - 1];
+        if (previous === undefined) return;
+        this.plugin.data.activityCategories[index - 1] = category;
+        this.plugin.data.activityCategories[index] = previous;
+        await this.plugin.savePluginData();
+        await this.plugin.refreshViews();
+        this.display();
+      }))
+      .addButton((button) => button.setIcon("arrow-down").setTooltip("Move down")
+        .setDisabled(index === this.plugin.data.activityCategories.length - 1).onClick(async () => {
+          const next = this.plugin.data.activityCategories[index + 1];
+          if (next === undefined) return;
+          this.plugin.data.activityCategories[index + 1] = category;
+          this.plugin.data.activityCategories[index] = next;
+          await this.plugin.savePluginData();
+          await this.plugin.refreshViews();
+          this.display();
+        }))
+      .addButton((button) => button.setWarning().setIcon("trash-2").setTooltip("Delete category").onClick(async () => {
+        if (!window.confirm(`Delete activity category “${category.name}”? Activity will become Uncategorized.`)) return;
+        this.plugin.data.activityCategories = this.plugin.data.activityCategories.filter((item) => item.id !== category.id);
+        await this.plugin.savePluginData();
+        await this.plugin.refreshViews();
+        this.display();
+      }));
+
+    category.rules.forEach((rule) => {
+      new Setting(card)
+        .setName("Classification rule")
+        .addDropdown((dropdown) => dropdown
+          .addOption("application", "Application")
+          .addOption("domain", "Domain")
+          .addOption("windowTitle", "Window title")
+          .setValue(rule.field)
+          .onChange(async (value) => {
+            if (value !== "application" && value !== "domain" && value !== "windowTitle") return;
+            rule.field = value;
+            await this.plugin.savePluginData();
+            await this.plugin.refreshViews();
+          }))
+        .addDropdown((dropdown) => dropdown
+          .addOption("contains", "Contains")
+          .addOption("equals", "Equals")
+          .setValue(rule.operator)
+          .onChange(async (value) => {
+            if (value !== "contains" && value !== "equals") return;
+            rule.operator = value;
+            await this.plugin.savePluginData();
+            await this.plugin.refreshViews();
+          }))
+        .addText((text) => text.setPlaceholder("Value").setValue(rule.value).onChange(async (value) => {
+          rule.value = value;
+          await this.plugin.savePluginData();
+          await this.plugin.refreshViews();
+        }))
+        .addButton((button) => button.setIcon("x").setTooltip("Remove rule").onClick(async () => {
+          category.rules = category.rules.filter((item) => item.id !== rule.id);
+          await this.plugin.savePluginData();
+          await this.plugin.refreshViews();
+          this.display();
+        }));
+    });
+
+    new Setting(card)
+      .setName("Rules")
+      .setDesc(category.rules.length === 0 ? "No rules: this category does not match activity." : "Rules within this category use OR logic.")
+      .addButton((button) => button.setButtonText("Add rule").onClick(async () => {
+        category.rules.push({
+          id: createId(),
+          field: "application",
+          operator: "contains",
+          value: ""
+        });
+        await this.plugin.savePluginData();
+        this.display();
+      }));
   }
 
   private async updateConnectionStatus(setting: Setting): Promise<void> {

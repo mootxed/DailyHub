@@ -86,7 +86,24 @@ export interface DailyHubData {
   schemaVersion: number;
   settings: DailyHubSettings;
   goals: DailyGoal[];
+  activityCategories: ActivityCategory[];
   notifiedCompletions: string[];
+}
+
+export type ActivityCategoryRuleField = "application" | "domain" | "windowTitle";
+
+export interface ActivityCategoryRule {
+  id: string;
+  field: ActivityCategoryRuleField;
+  operator: MatchOperator;
+  value: string;
+}
+
+export interface ActivityCategory {
+  id: string;
+  name: string;
+  colorIndex?: number;
+  rules: ActivityCategoryRule[];
 }
 
 export interface ActivityContext {
@@ -132,7 +149,7 @@ export interface ActivityWatchSnapshot {
   activity: DayActivity;
 }
 
-export const DATA_SCHEMA_VERSION = 8;
+export const DATA_SCHEMA_VERSION = 9;
 export const DEFAULT_CONTEXT_TIMEOUT_MINUTES = 10;
 
 export const DEFAULT_SETTINGS: DailyHubSettings = {
@@ -145,6 +162,7 @@ export const DEFAULT_DATA: DailyHubData = {
   schemaVersion: DATA_SCHEMA_VERSION,
   settings: DEFAULT_SETTINGS,
   goals: [],
+  activityCategories: [],
   notifiedCompletions: []
 };
 
@@ -196,5 +214,13 @@ export function createEmptyGoal(): DailyGoal {
     rules: [createEmptyRule()],
     contextTimeoutMinutes: DEFAULT_CONTEXT_TIMEOUT_MINUTES,
     enabled: true
+  };
+}
+
+export function createEmptyActivityCategory(name = "New category"): ActivityCategory {
+  return {
+    id: createId(),
+    name,
+    rules: []
   };
 }
