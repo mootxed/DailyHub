@@ -5,6 +5,7 @@ import {
   getActivityChartSegments,
   getGoalColor,
   getGoalColorIndex,
+  getMaximumChartSeconds,
   getNiceTimeScale,
   GOAL_COLOR_COUNT
 } from "../src/activity-chart";
@@ -100,6 +101,18 @@ describe("activity line chart", () => {
     expect(filterActivityChartSeries(source, new Set(["typing"])).map((item) => item.goalId))
       .toEqual(["devops"]);
     expect(source).toEqual(snapshot);
+  });
+
+  it("reports zero activity when every visible series is zero", () => {
+    const source = buildActivityChartSeries([goal("devops"), goal("typing")], [{
+      dateKey: DATE,
+      future: false,
+      progress: [progress("devops", 15), progress("typing", 0)]
+    }]);
+    const visible = filterActivityChartSeries(source, new Set(["devops"]));
+
+    expect(getMaximumChartSeconds(visible)).toBe(0);
+    expect(getMaximumChartSeconds(source)).toBe(15 * 60);
   });
 
   it("uses pause-aware progress totals instead of raw event duration", () => {

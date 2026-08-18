@@ -28,7 +28,7 @@ export function renderActivityChartView(container: HTMLElement, options: Activit
     future: day.future,
     progress: day.progress
   })));
-  const section = container.createDiv({ cls: "daily-hub-line-chart-card daily-hub-panel daily-hub-bento-chart" });
+  const section = container.createDiv({ cls: "daily-hub-line-chart-card daily-hub-panel" });
   const heading = section.createDiv({ cls: "daily-hub-section-heading" });
   heading.createEl("div", { text: "Activity", cls: "daily-hub-kicker" });
   heading.createEl("h2", { text: "Activity over time", cls: "daily-hub-section-title" });
@@ -73,13 +73,22 @@ export function renderActivityChartView(container: HTMLElement, options: Activit
       chart.createEl("p", { text: "No tracked activity for this period.", cls: "daily-hub-chart-empty daily-hub-muted" });
       return;
     }
+    if (getMaximumChartSeconds(series) === 0) {
+      const empty = chart.createDiv({ cls: "daily-hub-chart-empty-state is-zero-activity" });
+      empty.createEl("strong", { text: "No activity recorded yet." });
+      empty.createEl("span", {
+        text: "Your chart will appear after tracked time is recorded.",
+        cls: "daily-hub-muted"
+      });
+      return;
+    }
 
     const width = 800;
-    const height = 320;
+    const height = 250;
     const left = 62;
     const right = 18;
-    const top = 16;
-    const bottom = 48;
+    const top = 18;
+    const bottom = 42;
     const plotWidth = width - left - right;
     const plotHeight = height - top - bottom;
     const scale = getNiceTimeScale(getMaximumChartSeconds(series));
@@ -107,7 +116,7 @@ export function renderActivityChartView(container: HTMLElement, options: Activit
       - (seconds / scale.maximumSeconds) * plotHeight;
 
     const yTitle = createSvg("text", {
-      x: String(left), y: "10", class: "daily-hub-chart-axis-title", "text-anchor": "start"
+      x: String(left), y: "11", class: "daily-hub-chart-axis-title", "text-anchor": "start"
     });
     yTitle.textContent = "TIME";
     for (const tick of scale.ticks) {
@@ -131,7 +140,7 @@ export function renderActivityChartView(container: HTMLElement, options: Activit
         class: "daily-hub-chart-grid-line is-vertical"
       });
       const label = createSvg("text", {
-        x: String(x), y: String(height - 17),
+        x: String(x), y: String(height - 14),
         class: `daily-hub-chart-axis-label${day.progress === undefined ? " is-missing" : ""}`,
         "text-anchor": "middle"
       });

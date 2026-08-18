@@ -733,6 +733,8 @@
 
 .daily-hub-goals.is-single-goal {
   grid-template-columns: minmax(0, 1fr);
+  max-width: 680px;
+  width: 100%;
 }
 
 .daily-hub-goal {
@@ -1147,20 +1149,33 @@
 }
 
 .daily-hub-color-choice {
-  background: var(--dh-goal-color, var(--dh-surface-muted));
+  align-items: center;
+  background: transparent !important;
   border: 2px solid transparent;
   box-shadow: none;
+  display: inline-flex;
   height: 28px;
+  justify-content: center;
   min-width: 28px;
   padding: 0;
   width: 28px;
 }
 
 .daily-hub-color-choice.is-auto {
-  background: var(--dh-surface-muted);
+  background: var(--dh-surface-muted) !important;
   color: var(--dh-text-muted);
   font-size: 9px;
   width: 42px;
+}
+
+.daily-hub-color-swatch {
+  background-color: var(--dh-goal-color) !important;
+  border: 1px solid color-mix(in srgb, var(--dh-goal-color) 72%, var(--dh-text));
+  border-radius: 4px;
+  display: block;
+  height: 20px;
+  pointer-events: none;
+  width: 20px;
 }
 
 .daily-hub-color-choice.is-selected {
@@ -1450,11 +1465,16 @@
 }
 
 .daily-hub-analytics-rail {
-  align-content: start;
+  align-self: start;
   display: flex;
   flex-direction: column;
   gap: 14px;
   min-width: 0;
+}
+
+.daily-hub-analytics-rail > * {
+  flex: 0 0 auto;
+  height: auto;
 }
 
 .daily-hub-bento > *,
@@ -1535,6 +1555,14 @@
 .daily-hub-chart-legend-item.is-hidden { color: var(--dh-text-muted); opacity: .65; }
 .daily-hub-chart-legend-item.is-hidden .daily-hub-chart-swatch { background: transparent; }
 .daily-hub-chart-empty-state { align-items: center; display: flex; gap: 10px; }
+
+.daily-hub-chart-empty-state.is-zero-activity {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 3px;
+  min-height: 76px;
+  padding: var(--size-4-3) 0;
+}
 
 .daily-hub-chart-swatch {
   background: var(--dh-goal-color);
@@ -1619,13 +1647,13 @@
   .daily-hub-bento-header,
   .daily-hub-bento-navigation,
   .daily-hub-bento-status,
-  .daily-hub-bento-chart,
+  .daily-hub-bento > .daily-hub-bento-chart,
+  .daily-hub-bento-goals,
   .daily-hub-bento-breakdown,
   .daily-hub-analytics-notice { grid-column: 1 / -1; }
   .daily-hub-bento-day,
   .daily-hub-bento-plan,
   .daily-hub-bento-metric { grid-column: span 3; }
-  .daily-hub-bento-goals,
   .daily-hub-bento-heatmap { grid-column: span 4; }
   .daily-hub-bento-week,
   .daily-hub-bento-consistency { grid-column: span 2; }
@@ -1635,9 +1663,9 @@
   .daily-hub-bento { grid-template-columns: repeat(12, minmax(0, 1fr)); }
   .daily-hub-bento-day { grid-column: span 7; }
   .daily-hub-bento-plan { grid-column: span 5; }
-  .daily-hub-bento-goals,
-  .daily-hub-bento-chart,
+  .daily-hub-bento > .daily-hub-bento-chart,
   .daily-hub-bento-heatmap { grid-column: span 8; }
+  .daily-hub-bento-goals { grid-column: 1 / -1; }
   .daily-hub-bento-consistency { grid-column: span 4; }
   .daily-hub-bento-metric { grid-column: span 3; }
 }

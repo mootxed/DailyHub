@@ -178,7 +178,11 @@ export class GoalEditorModal extends Modal {
         attr: { type: "button", "aria-label": choice.label, "aria-pressed": String(selected) }
       });
       if (choice.value !== undefined) {
-        button.style.setProperty("--dh-goal-color", getGoalColor(this.draft.id, choice.value));
+        const swatch = button.createSpan({
+          cls: "daily-hub-color-swatch",
+          attr: { "aria-hidden": "true" }
+        });
+        swatch.style.setProperty("--dh-goal-color", getGoalColor(this.draft.id, choice.value));
       }
       button.addEventListener("click", () => {
         this.draft.colorIndex = choice.value;
